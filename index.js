@@ -100,6 +100,19 @@ class CachedLookup {
             reference._lookup(args, resolve, reject);
         });
     }
+
+    /* CachedLookup Getters */
+    get cached_value() {
+        return this.#cache_value;
+    }
+
+    get last_update() {
+        return this.#lookup_last_update;
+    }
+
+    get in_flight() {
+        return this.#lookup_in_flight;
+    }
 }
 
 module.exports = CachedLookup;
