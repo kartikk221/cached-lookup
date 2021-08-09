@@ -1,5 +1,16 @@
 # CachedLookup: A Simple Package To Cache And Save On Expensive API Calls
 
+<div align="left">
+
+[![NPM version](https://img.shields.io/npm/v/cached-lookup.svg?style=flat)](https://www.npmjs.com/package/cached-lookup)
+[![NPM downloads](https://img.shields.io/npm/dm/cached-lookup.svg?style=flat)](https://www.npmjs.com/package/cached-lookup)
+[![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/kartikk221/cached-lookup.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/kartikk221/cached-lookup/context:javascript)
+[![GitHub issues](https://img.shields.io/github/issues/kartikk221/cached-lookup)](https://github.com/kartikk221/cached-lookup/issues)
+[![GitHub stars](https://img.shields.io/github/stars/kartikk221/cached-lookup)](https://github.com/kartikk221/cached-lookup/stargazers)
+[![GitHub license](https://img.shields.io/github/license/kartikk221/cached-lookup)](https://github.com/kartikk221/cached-lookup/blob/master/LICENSE)
+
+</div>
+
 ## Motivation
 This package aims to simplify the task of throttling and implementing a caching system for an endpoint which may be calling another third party API under the hood with a usage limit. This package can also help to alleviate pressure when consuming data from databases by implementing a short lived cache. This package also implements an underlying promise queue for lookup calls thus only one expensive API call is made when cache has expired.
 
