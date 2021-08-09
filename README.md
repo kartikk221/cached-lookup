@@ -12,7 +12,7 @@
 </div>
 
 ## Motivation
-This package aims to simplify the task of throttling and implementing a caching system for an endpoint which may be calling another third party API under the hood with a usage limit. This package can also help to alleviate pressure when consuming data from databases by implementing a short lived cache. This package also implements an underlying promise queue for lookup calls thus only one expensive API call is made when cache has expired.
+This package aims to simplify the task of implementing a short-lived caching system for an endpoint which may be calling another third party API under the hood with a usage/rate limit. This package can also help to alleviate pressure when consuming data from databases by implementing a short lived cache that does not scale relative to incoming requests. This package also implements an underlying promise queue for lookup calls thus only one expensive API call is made when multiple consumption requests are made while cache has expired.
 
 ## Features
 - Simple-to-use API
