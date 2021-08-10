@@ -94,7 +94,7 @@ class CachedLookup {
         let reference = this;
         return new Promise(async (resolve, reject) => {
             // Hit local cache first and resolve immediately
-            if (reference._is_cache_valid()) return reference.#cache_value;
+            if (reference._is_cache_valid()) return resolve(reference.#cache_value);
 
             // Perform a fresh lookup to update cache
             reference._lookup(args, resolve, reject);
