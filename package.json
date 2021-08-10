@@ -1,6 +1,6 @@
 {
   "name": "cached-lookup",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "A Simple Package To Cache And Save On Expensive API Lookups",
   "main": "index.js",
   "scripts": {
