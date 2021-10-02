@@ -28,7 +28,7 @@ npm i cached-lookup
 ## Examples
 Below are some example(s) making use of CachedLookup in various situations.
 
-#### Enforcing a 1 Second Cache For An API Call To A Third-Party Currency API
+#### Enforcing a 5 Second Cache For An API Call To A Third-Party Currency API
 ```javascript
 const CachedLookup = require('cached-lookup');
 
