@@ -47,7 +47,7 @@ const CurrencyLookup = new CachedLookup(5000, async () => {
 
 // Some webserver route utilizing the CachedLookup instance to serve currency data
 webserver.get('/api/currency', async (request, response) => {
-    const data = await CachedLookup.get();
+    const data = await CurrencyLookup.get();
     return response.send(data);
 });
 ```
