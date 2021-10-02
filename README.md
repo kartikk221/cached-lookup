@@ -17,8 +17,7 @@ This package aims to simplify the task of implementing a short-lived caching sys
 ## Features
 - Simple-to-use API
 - Asynchronous By Nature
-- Custom Parameters Support
-- Lightweight/No Dependencies
+- Extremely Lightweight
 
 ## Installation
 CachedLookup can be installed using node package manager (`npm`)
@@ -32,32 +31,23 @@ Below are some example(s) making use of CachedLookup in various situations.
 #### Enforcing a 1 Second Cache For An API Call To A Third-Party Currency API
 ```javascript
 const CachedLookup = require('cached-lookup');
-const CurrencyLookup = new CachedLookup({
-    lifetime: 1000 // 1 Second Cache Lifetime
-});
 
-// Bind a handler which is used to retrieve fresh currency data from a third party API
-// Note! The Handler Must Be Asynchronous Or Return A Promise
-CurrencyLookup.set_lookup_handler((base_currency) => {
-    return new Promise((resolve, reject) => {
-        // get_currency_values is a function that calls a third party API that has a daily usage limit
-        get_currency_values(base_currency)
-        .then((results) => {
-            // You can do some processing here
-            
-            // We resolve the promise so CachedLookup can take over and cache/resolve data
-            resolve(results);
-        })
-        .catch((error) => {
-            // We reject the promise so any pending CachedLookup.get() calls can be rejected with error
-            reject(error);    
-        });
-    });
+// Create an instance that caches for 5 seconds
+// This will ensure, new data is only fetched every 5 seconds
+const CurrencyLookup = new CachedLookup(5000, async () => {
+    // Hit some third-party API to retrieve fresh currency data
+    const result = await get_currency_values();
+    
+    // Perform some local parsing of the resolved data
+    const parsed = parse_data(result);
+
+    // Return parsed data for cached-lookup to cache and serve instantly for the next 5 seconds
+    return parsed;
 });
 
 // Some webserver route utilizing the CachedLookup instance to serve currency data
 webserver.get('/api/currency', async (request, response) => {
-    let data = await CachedLookup.get('USD');
+    const data = await CachedLookup.get();
     return response.send(data);
 });
 ```
@@ -65,23 +55,24 @@ webserver.get('/api/currency', async (request, response) => {
 ## CachedLookup
 Below is a breakdown of the `CachedLookup` class.
 
-#### Constructor Options
-* `lifetime` [`Number`]: Duration of cache lifetime in milliseconds.
+#### Constructor Parameters
+* `new CachedLookup(Number: lifetime, Function: lookup)`: Creates a new CachedLookup instance.
+  * `lifetime` [`Number`]: Duration of cache lifetime in milliseconds.
+  * `lookup` [`Function`]: Lookup handler which is invocated to get fresh results.
+    * **Note!** this callback can be either `synchronous` or `asynchronous`.
+    * **Note!** you must return a value through this callback for the caching to work properly.
 
 #### CachedLookup Properties
 | Property  | Type     | Description                |
 | :-------- | :------- | :------------------------- |
-| `cached_value` | `Any` | Most recent resolved/cached vcalue |
-| `last_update` | `Number` | Timestamp of last fresh lookup in milliseconds |
+| `cached_value` | `Any` | Most recent cached value |
+| `expires_at` | `Number` | Timestamp of when cache will expire in milliseconds |
 | `in_flight` | `Boolean` | Whether instance is currently looking up a fresh value |
 
 #### CachedLookup Methods
-* `get(...parameters)`: Consume most recent value from lookup instance.
+* `get()`: Consume appropriate value from lookup instance. This method automatically handles resolving of cached/fresh data.
     * **Returns** a `Promise` which is then resolved to the lookup value. 
-    * **parameters** are directly passed to the `handler` set with `set_lookup_handler`.
     * **Note** this method will reject when the lookup handler also rejects.
-* `set_lookup_handler(Function: handler)`: Sets the lookup handler which is used to perform fresh lookups.
-    * **Note**: This method must either be asynchronous or return a `Promise`.
-    * **Note**: The `parameters` are directly passed from the `parameters` specified in the original `get(...parameters)` call.
+* `expire()`: Expires current cached value marking instance to fetch fresh value on next `get()` invocation.
 ## License
 [MIT](./LICENSE)

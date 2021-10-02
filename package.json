@@ -1,29 +1,29 @@
 {
-  "name": "cached-lookup",
-  "version": "1.0.4",
-  "description": "A Simple Package To Cache And Save On Expensive API Lookups",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kartikk221/cached-lookup.git"
-  },
-  "keywords": [
-    "simple",
-    "api",
-    "lookup",
-    "cache",
-    "memory",
-    "api-lookup",
-    "expensive",
-    "efficient"
-  ],
-  "author": "kartikk221",
-  "license": "MIT",
-  "bugs": {
-    "url": "https://github.com/kartikk221/cached-lookup/issues"
-  },
-  "homepage": "https://github.com/kartikk221/cached-lookup#readme"
+    "name": "cached-lookup",
+    "version": "2.0.0",
+    "description": "A Simple Package To Cache And Save On Expensive API Lookups",
+    "main": "index.js",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/kartikk221/cached-lookup.git"
+    },
+    "keywords": [
+        "simple",
+        "api",
+        "lookup",
+        "cache",
+        "memory",
+        "api-lookup",
+        "expensive",
+        "efficient"
+    ],
+    "author": "kartikk221",
+    "license": "MIT",
+    "bugs": {
+        "url": "https://github.com/kartikk221/cached-lookup/issues"
+    },
+    "homepage": "https://github.com/kartikk221/cached-lookup#readme"
 }

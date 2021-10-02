@@ -1,117 +1,111 @@
 class CachedLookup {
-    #cache_value;
-    #cache_lifetime;
-    #lookup_queue = [];
-    #lookup_in_flight = false;
-    #lookup_last_update = 0;
-    #lookup_handler = () => {};
-
-    constructor({ lifetime = 1000 }) {
-        // Ensure lifetime parameter is a number type
-        if (typeof lifetime !== 'number')
-            throw new Error('lifetime must be a Number in milliseconds');
-        this.#cache_lifetime = lifetime;
-    }
+    #lifetime;
+    #handler;
+    #value;
+    #expires_at;
+    #promise;
 
     /**
-     * Binds a lookup handler that is called whenever a fresh value must be fetched after cache has expired.
-     *
-     * @param {Function} handler
+     * Creates a CachedLookup instance
+     * @param {Number} lifetime Lifetime of the cache in milliseconds
+     * @param {Function} handler Lookup handler which will be called to get fresh value
      */
-    set_lookup_handler(handler) {
-        // Ensure handler is a function type
+    constructor(lifetime, handler) {
+        // Ensure lifetime is a number in milliseconds
+        if (typeof lifetime !== 'number' || lifetime < 1)
+            throw new Error(
+                'CachedLookup(lifetime, handler) -> lifetime must be a number in milliseconds'
+            );
+
+        // Ensure handler is a function
         if (typeof handler !== 'function')
-            throw new Error('set_lookup_handler(handler) -> handler must be a Function');
-        this.#lookup_handler = handler;
+            throw new Error('CachedLookup(lifetime, handler) -> handler must be a function');
+
+        // Store lifetime and handler
+        this.#lifetime = lifetime;
+        this.#handler = handler;
     }
 
     /**
-     * Returns whether cache is still valid or expired.
-     *
+     * Returns whether last retrieved cache value is still valid.
+     * @private
      * @returns {Boolean}
      */
     _is_cache_valid() {
-        let value = this.#cache_value;
-        let last_update = this.#lookup_last_update;
-        return value && Date.now() - last_update < this.#cache_lifetime;
+        return this.#value && this.#expires_at && this.#expires_at > Date.now();
     }
 
     /**
-     * Flushes all queued handlers based on specified index and resets queue to empty.
-     *
-     * @param {*} value
-     * @param {*} index
+     * @private
+     * Increments cache expiry timestamp and cleans up shared promise.
      */
-    _flush_queue(value, index) {
-        this.#lookup_queue.forEach((handlers) => handlers[index](value));
-        this.#lookup_queue = [];
+    _increment_cache() {
+        // Extend cache expired_at timestamp and cleanup promise
+        this.#expires_at = Date.now() + this.#lifetime;
+        this.#promise = null;
     }
 
     /**
-     * Performs a lookup for value and queues when a lookup is already in flight.
-     *
-     * @param {Arguments} args
-     * @param {Function} resolve
-     * @param {Function} reject
-     * @returns
-     */
-    _lookup(args, resolve, reject) {
-        // If instance is in flight, queue the lookup request
-        if (this.#lookup_in_flight === true) return this.#lookup_queue.push([resolve, reject]);
-
-        // Mark instance as in flight causing all further lookups to be queued
-        this.#lookup_in_flight = true;
-
-        // Perform lookup by calling lookup handler set by user
-        let reference = this;
-        this.#lookup_handler(...args)
-            .then((result) => {
-                // Cache new lookup result and flush queue
-                reference.#cache_value = result;
-                reference.#lookup_last_update = Date.now();
-                reference._flush_queue(result, 0);
-                if (resolve) resolve(result);
-            })
-            .catch((error) => {
-                // Reject all queued handlers and caller with rejection error
-                reference._flush_queue(error, 1);
-                if (reject) reject(error);
-            })
-            .finally(() => {
-                // Mark instance as no longer in flight
-                reference.#lookup_in_flight = false;
-            });
-    }
-
-    /**
-     * Resolves cached or fresh value depending on internal cache state.
-     * Note any parameters defined for this method are passed onto the lookup handler.
-     *
-     * @returns {Any}
+     * Returns cached or fresh value from instance depending on cache status
+     * @returns {Promise}
      */
     get() {
-        let args = arguments;
-        let reference = this;
-        return new Promise(async (resolve, reject) => {
-            // Hit local cache first and resolve immediately
-            if (reference._is_cache_valid()) return resolve(reference.#cache_value);
+        // Return value from cache if it is still valid
+        if (this._is_cache_valid()) return Promise.resolve(this.#value);
 
-            // Perform a fresh lookup to update cache
-            reference._lookup(args, resolve, reject);
+        // Return pending promise if one exists for an in_flight lookup
+        if (this.#promise) return this.#promise;
+
+        // Create a new promise for the lookup operation and cache it
+        const reference = this;
+        this.#promise = new Promise((resolve, reject) => {
+            // Safely execute handler to retrieve promise
+            let output;
+            try {
+                output = reference.#handler();
+            } catch (error) {
+                return reject(error);
+            }
+
+            // Bind a then/catch to the returned promise as it is an asynchronous operation with pending result
+            if (output instanceof Promise) {
+                output
+                    .then((value) => {
+                        // Resolve returned value and increment cache
+                        reference.#value = value;
+                        resolve(value);
+                        reference._increment_cache();
+                    })
+                    .catch(reject);
+            } else {
+                // Resolve output instantly as it was a synchronous operation with an instant result
+                reference.#value = output;
+                resolve(output);
+                reference._increment_cache();
+            }
         });
+
+        return this.#promise;
+    }
+
+    /**
+     * Expires current cached value marking instance to fetch fresh value on next get operation.
+     */
+    expire() {
+        this.#expires_at = 0;
     }
 
     /* CachedLookup Getters */
     get cached_value() {
-        return this.#cache_value;
+        return this.#value;
     }
 
-    get last_update() {
-        return this.#lookup_last_update;
+    get expires_at() {
+        return this.#expires_at;
     }
 
     get in_flight() {
-        return this.#lookup_in_flight;
+        return this.#promise instanceof Promise;
     }
 }
 
