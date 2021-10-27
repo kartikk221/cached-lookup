@@ -1,4 +1,5 @@
 const CachedLookup = require('../index.js');
+const LIFETIME = 250;
 const CONFIGURATION = {
     iterations: 20,
     delay: 50,
@@ -6,7 +7,6 @@ const CONFIGURATION = {
 };
 
 const TestLookup = new CachedLookup(
-    250,
     () =>
         new Promise((resolve, reject) => {
             setTimeout(() => resolve('something'), CONFIGURATION.delay);
@@ -22,7 +22,7 @@ for (let i = 1; i <= CONFIGURATION.iterations; i++) {
     setTimeout(
         async (num) => {
             const start_time = Date.now();
-            await TestLookup.get();
+            await TestLookup.cached(LIFETIME);
             timings[num] = Date.now() - start_time;
         },
         i * CONFIGURATION.delay,
