@@ -1,8 +1,9 @@
 {
     "name": "cached-lookup",
-    "version": "3.0.0",
+    "version": "3.0.1",
     "description": "A Simple Package To Cache And Save On Expensive Lookups & Operations.",
     "main": "index.js",
+    "types": "./types/index.d.ts",
     "scripts": {
         "test": "echo \"Error: no test specified\" && exit 1"
     },
@@ -17,8 +18,9 @@
         "cache",
         "memory",
         "intermittent",
-        "expensive",
-        "efficient"
+        "efficient",
+        "async",
+        "fast"
     ],
     "author": "kartikk221",
     "license": "MIT",

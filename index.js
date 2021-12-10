@@ -6,8 +6,7 @@ class CachedLookup {
 
     constructor(lookup) {
         // Ensure lookup is a function type
-        if (typeof lookup !== 'function')
-            throw new Error('new CachedLookup(lookup) -> lookup must be a Function');
+        if (typeof lookup !== 'function') throw new Error('new CachedLookup(lookup) -> lookup must be a Function');
         this.#lookup = lookup;
     }
 
@@ -40,6 +39,10 @@ class CachedLookup {
      * @returns {Promise}
      */
     cached(max_age) {
+        // Ensure max_age is a valid greater than zero number
+        if (typeof max_age !== 'number' || max_age < 0)
+            throw new Error('CachedLookup.cached(max_age) -> max_age must be a number that is greater than zero.');
+
         // Return value from cache if it is still valid
         if (this._is_cache_valid(max_age)) return Promise.resolve(this.#value);
 
@@ -86,7 +89,7 @@ class CachedLookup {
     }
 
     /**
-     * Expires current cached value by setting its timestamp to 0
+     * Expires the current cached value.
      */
     expire() {
         this.#updated_at = 0;
