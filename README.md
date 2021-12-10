@@ -16,8 +16,10 @@ This package aims to simplify the task of implementing a short-lived caching sys
 
 ## Features
 - Simple-to-use API
+- TypeScript Support
 - Asynchronous By Nature
 - Customizable Cache Lifetime
+- Dynamic Cache Consumption
 - Extremely Lightweight
 - No Dependencies
 
