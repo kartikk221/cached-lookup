@@ -17,8 +17,9 @@ This package aims to simplify the task of implementing a short-lived caching sys
 ## Features
 - Simple-to-use API
 - Asynchronous By Nature
-- Extremely Lightweight
 - Customizable Cache Lifetime
+- Extremely Lightweight
+- No Dependencies
 
 ## Installation
 CachedLookup can be installed using node package manager (`npm`)
