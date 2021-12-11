@@ -1,13 +1,13 @@
-type LookupHandler = () => any | Promise<any>
+type LookupHandler<T extends any> = () => T | Promise<T>
 
-export default class CachedLookup {
+export default class CachedLookup<T extends any> {
 
     /**
      * Constructs a cached lookup with the specified lookup handler.
      * 
      * @param lookup 
      */
-    constructor(lookup: LookupHandler)
+    constructor(lookup: LookupHandler<T>)
 
     /**
      * Returns cached value if the latest cache value is not older than the maximum age.
@@ -15,12 +15,12 @@ export default class CachedLookup {
      *
      * @param {Number} max_age In Milliseconds
      */
-    cached(max_age: number): Promise<any>;
+    cached(max_age: number): Promise<T>;
 
     /**
      * Fetches a fresh value from the lookup handler and returns the result.
      */
-    fresh(): Promise<any>;
+    fresh(): Promise<T>;
 
     /**
      * Expires the current cached value.
@@ -32,7 +32,7 @@ export default class CachedLookup {
     /**
      * Returns most recent cached value for this lookup instance.
      */
-    get value(): any;
+    get value(): T;
 
     /**
      * Returns the milliseconds unix timestamp of the last cached value update.
