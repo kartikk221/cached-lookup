@@ -10,37 +10,41 @@ export default class CachedLookup<T extends any> {
     constructor(lookup: LookupHandler<T>)
 
     /**
-     * Returns cached value if the latest cache value is not older than the maximum age.
-     * This message falls back to fetching a fresh value if most recent cached value is too old.
+     * Returns cached value if the cached value is not older than the specified maximum age in milliseconds.
+     * This method automatically retrieves a fresh value if the cached value is older than the specified maximum age.
      *
      * @param {Number} max_age In Milliseconds
+     * @returns {Promise}
      */
     cached(max_age: number): Promise<T>;
 
     /**
-     * Fetches a fresh value from the lookup handler and returns the result.
+     * Fetches a fresh value from the lookup handler and returns result.
+     * @returns {Promise}
      */
     fresh(): Promise<T>;
 
     /**
-     * Expires the current cached value.
+     * Expires the current cached value marking the instance to retrieve a fresh value on next call.
      */
     expire(): void;
 
     /* CachedLookup Getters */
 
     /**
-     * Returns most recent cached value for this lookup instance.
+     * Returns most recently cached value for this lookup instance.
      */
     get value(): T;
 
     /**
      * Returns the milliseconds unix timestamp of the last cached value update.
+     * @returns {Number}
      */
     get updated_at(): number;
 
     /**
      * Returns whether this instance is currently fetching a fresh value.
+     * @returns {Boolean}
      */
     get in_flight(): boolean;
 }
