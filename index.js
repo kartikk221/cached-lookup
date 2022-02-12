@@ -1,7 +1,7 @@
 class CachedLookup {
     #lookup;
-    #promise;
     #value;
+    #promise;
     #updated_at = 0;
 
     constructor(lookup) {
@@ -22,18 +22,18 @@ class CachedLookup {
     }
 
     /**
-     * Cached the provided value and renews cache metrics.
+     * Cached the provided value and renews the cache availability.
      * @private
      */
     _cache_value(value) {
         this.#value = value;
-        this.#updated_at = Date.now();
         this.#promise = undefined;
+        this.#updated_at = Date.now();
     }
 
     /**
-     * Returns cached value if the latest cache value is not older than the maximum age.
-     * This message falls back to fetching a fresh value if most recent cached value is too old.
+     * Returns cached value if the cached value is not older than the specified maximum age in milliseconds.
+     * This method automatically retrieves a fresh value if the cached value is older than the specified maximum age.
      *
      * @param {Number} max_age In Milliseconds
      * @returns {Promise}
@@ -52,7 +52,6 @@ class CachedLookup {
 
     /**
      * Fetches a fresh value from the lookup handler and returns result.
-     *
      * @returns {Promise}
      */
     fresh() {
@@ -61,35 +60,26 @@ class CachedLookup {
 
         // Create a new promise for the lookup operation and cache it locally
         const scope = this;
-        this.#promise = new Promise((resolve, reject) => {
+        this.#promise = new Promise(async (resolve, reject) => {
             // Safely execute lookup handler to retrieve an output value
             let output;
             try {
-                output = scope.#lookup();
+                output = await scope.#lookup();
             } catch (error) {
+                // Reject the error from the lookup operation
                 return reject(error);
             }
 
-            // Bind a then/catch to the returned output value if it is a Promise
-            if (output instanceof Promise) {
-                output
-                    .then((value) => {
-                        scope._cache_value(value);
-                        resolve(value);
-                    })
-                    .catch(reject);
-            } else {
-                // Resolve output instantly as it was a synchronous operation with an instant result
-                scope._cache_value(output);
-                resolve(output);
-            }
+            // Cache the output value and resolve the promise
+            scope._cache_value(output);
+            resolve(output);
         });
 
         return this.#promise;
     }
 
     /**
-     * Expires the current cached value.
+     * Expires the current cached value marking the instance to retrieve a fresh value on next call.
      */
     expire() {
         this.#updated_at = 0;
@@ -98,7 +88,7 @@ class CachedLookup {
     /* CachedLookup Getters */
 
     /**
-     * Returns most recent cached value for this lookup instance.
+     * Returns most recently cached value for this lookup instance.
      */
     get value() {
         return this.#value;
