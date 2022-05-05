@@ -1,113 +1,185 @@
+/**
+ * @template T
+ */
 class CachedLookup {
-    #lookup;
-    #value;
-    #promise;
-    #updated_at = 0;
+    #resolver;
+    #cache = {};
+    #promises = {};
 
-    constructor(lookup) {
-        // Ensure lookup is a function type
-        if (typeof lookup !== 'function') throw new Error('new CachedLookup(lookup) -> lookup must be a Function');
-        this.#lookup = lookup;
+    /**
+     * Creates a new CachedLookup instance with the specified value resolver function.
+     * @param {function(...any):T} resolver
+     */
+    constructor(resolver) {
+        // Ensure resolver is a function type
+        if (typeof resolver !== 'function')
+            throw new Error('new CachedLookup(resolver) -> resolver must be a Function.');
+        this.#resolver = resolver;
     }
 
     /**
-     * Returns whether current cache value is valid or not based on provided age in milliseconds.
+     * @typedef {Boolean|Number|String} SupportedArgumentTypes
+     */
+
+    /**
+     * @typedef {Object} ValueRecord
+     * @property {T} value
+     * @property {Number} updated_at
+     */
+
+    /**
+     * Returns an identifier string based on the provided arguments.
      *
      * @private
-     * @param {Number} max_age In Milliseconds
-     * @returns {Boolean}
+     * @param {Array<SupportedArgumentTypes>} args
+     * @returns {String}
      */
-    _is_cache_valid(max_age) {
-        return this.#updated_at + max_age > Date.now();
+    _arguments_to_identifier(args) {
+        return args.join(':');
     }
 
     /**
-     * Cached the provided value and renews the cache availability.
+     * Retrieves the cached value record for the provided set of arguments.
+     *
      * @private
+     * @param {Array<SupportedArgumentTypes>} args
+     * @param {Number} max_age
+     * @returns {ValueRecord=}
      */
-    _cache_value(value) {
-        this.#value = value;
-        this.#promise = undefined;
-        this.#updated_at = Date.now();
+    _get_cache_record(args, max_age) {
+        // Retrieve the identifier string for the provided arguments
+        const identifier = this._arguments_to_identifier(args);
+
+        // Attempt to lookup the value record for the specified arguments
+        const record = this.#cache[identifier];
+
+        // Return the value record if it exists and is not older than the specified maximum age
+        if (record && record.updated_at > Date.now() - max_age) return record;
+    }
+
+    /**
+     * Sets the cached value record for the provided set of arguments and value.
+     *
+     * @private
+     * @param {Array<SupportedArgumentTypes>} args
+     * @param {T} value
+     */
+    _set_cache_record(args, value) {
+        // Retrieve the identifier string for the provided arguments
+        const identifier = this._arguments_to_identifier(args);
+
+        // Initialize the record structure for the specified arguments if it does not exist
+        if (!this.#cache[identifier])
+            this.#cache[identifier] = {
+                value: null,
+                updated_at: null,
+            };
+
+        // Fill the record values with the provided value and current timestamp
+        this.#cache[identifier].value = value;
+        this.#cache[identifier].updated_at = Date.now();
+    }
+
+    /**
+     * Retrieves a fresh value from the resolver and returns result.
+     * Can be directed to store value in cache
+     *
+     * @private
+     * @param {Array<SupportedArgumentTypes>} args
+     * @returns {Promise<T>}
+     */
+    _fresh_value(args) {
+        // Retrieve the identifier string for the provided arguments
+        const identifier = this._arguments_to_identifier(args);
+
+        // Resolve an existing promise for the specified arguments if it exists
+        if (this.#promises[identifier]) return this.#promises[identifier];
+
+        // Initialize a new promise which will be resolved when the value is resolved
+        const reference = this;
+        this.#promises[identifier] = new Promise(async (resolve, reject) => {
+            // Attempt to resolve the value for the specified arguments from the resolver
+            let value;
+            try {
+                value = await reference.#resolver(...args);
+            } catch (error) {
+                return reject(error);
+            }
+
+            // Store the resolved value in the cache for the specified arguments
+            reference._set_cache_record(args, value);
+
+            // Resolve the promise with the resolved value
+            resolve(value);
+
+            // Cleanup the promise for the specified arguments
+            delete reference.#promises[identifier];
+        });
+
+        // Return the promise to the caller
+        return this.#promises[identifier];
     }
 
     /**
      * Returns cached value if the cached value is not older than the specified maximum age in milliseconds.
      * This method automatically retrieves a fresh value if the cached value is older than the specified maximum age.
+     * Note! This method will differentiate between values for different sets of arguments.
      *
      * @param {Number} max_age In Milliseconds
-     * @returns {Promise}
+     * @param {...(SupportedArgumentTypes|Array<SupportedArgumentTypes>)} args
+     * @returns {Promise<T>}
      */
-    cached(max_age) {
+    cached(max_age, ...args) {
         // Ensure max_age is a valid greater than zero number
         if (typeof max_age !== 'number' || max_age < 0)
             throw new Error('CachedLookup.cached(max_age) -> max_age must be a number that is greater than zero.');
 
-        // Return value from cache if it is still valid
-        if (this._is_cache_valid(max_age)) return Promise.resolve(this.#value);
+        // Retrieve a serialized Array of arguments ignoring the first argument (max_age)
+        const serialized = Array.from(arguments).slice(1);
 
-        // Initiate a lookup for a fresh value
-        return this.fresh();
+        // Attempt to resolve the cached value from the cached value record
+        const record = this._get_cache_record(serialized, max_age);
+        if (record) return Promise.resolve(record.value);
+
+        // Resolve the fresh value for the provided arguments in array serialization
+        return this._fresh_value(serialized);
     }
 
     /**
-     * Fetches a fresh value from the lookup handler and returns result.
-     * @returns {Promise}
+     * Fetches a fresh value from the resolver and returns result.
+     * Note! This method will pass all arguments to the resolver.
+     *
+     * @param {...(SupportedArgumentTypes|Array<SupportedArgumentTypes>)} args
+     * @returns {Promise<T>}
      */
-    fresh() {
-        // Return a pending promise if one exists for an in flight lookup
-        if (this.#promise) return this.#promise;
+    fresh(...args) {
+        // Serialize the arguments into an Array
+        const serialized = Array.from(arguments);
 
-        // Create a new promise for the lookup operation and cache it locally
-        const scope = this;
-        this.#promise = new Promise(async (resolve, reject) => {
-            // Safely execute lookup handler to retrieve an output value
-            let output;
-            try {
-                output = await scope.#lookup();
-            } catch (error) {
-                // Reject the error from the lookup operation
-                return reject(error);
-            }
-
-            // Cache the output value and resolve the promise
-            scope._cache_value(output);
-            resolve(output);
-        });
-
-        return this.#promise;
+        // Resolve the fresh value for the provided serialized arguments
+        return this._fresh_value(serialized);
     }
 
     /**
-     * Expires the current cached value marking the instance to retrieve a fresh value on next call.
+     * Expires the cache for the provided set of arguments.
+     * @param {...(SupportedArgumentTypes|Array<SupportedArgumentTypes>)} args
      */
-    expire() {
-        this.#updated_at = 0;
+    expire(...args) {
+        // Retrieve the identifier string for the provided arguments
+        const identifier = this._arguments_to_identifier(Array.from(arguments));
+
+        // Remove the cached value record for the specified arguments
+        delete this.#cache[identifier];
     }
 
     /* CachedLookup Getters */
 
     /**
-     * Returns most recently cached value for this lookup instance.
+     * Returns the underlying cache object with all values for all sets of arguments.
+     * @returns {Map<String, ValueRecord>}
      */
-    get value() {
-        return this.#value;
-    }
-
-    /**
-     * Returns the milliseconds unix timestamp of the last cached value update.
-     * @returns {Number}
-     */
-    get updated_at() {
-        return this.#updated_at;
-    }
-
-    /**
-     * Returns whether this instance is currently fetching a fresh value.
-     * @returns {Boolean}
-     */
-    get in_flight() {
-        return this.#promise instanceof Promise;
+    get cache() {
+        return this.#cache;
     }
 }
 
