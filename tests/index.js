@@ -22,6 +22,7 @@ async function test_instance() {
 
     // Perform the first lookup
     let [cached_value_1, cached_duration_1] = await with_duration(lookup.cached(lookup_delay, ...arguments)); // This should be fresh
+    let updated_at_1 = lookup.updated_at(...arguments);
 
     // Assert that the lookup arguments are the same as the last lookup arguments
     assert_log(
@@ -33,9 +34,11 @@ async function test_instance() {
     // Wait for the old value to expire and perform the second lookup
     await async_wait(lookup_delay + 1);
     let [cached_value_2, cached_duration_2] = await with_duration(lookup.cached(lookup_delay, ...arguments)); // This should be fresh
+    let updated_at_2 = lookup.updated_at(...arguments);
 
     // Perform the third lookup instantly
     let [cached_value_3, cached_duration_3] = await with_duration(lookup.cached(lookup_delay, ...arguments)); // This should be cached
+    let updated_at_3 = lookup.updated_at(...arguments);
 
     // Wait for the old value to expire and perform the fourth lookup
     await async_wait(lookup_delay + 1);
@@ -106,6 +109,13 @@ async function test_instance() {
         group,
         candidate + '.in_flight() - Lookup States Test',
         () => !in_flight_1 && in_flight_2 && !in_flight_3
+    );
+
+    // Assert that the CachedLookup.updated_at() method returned the correct values
+    assert_log(
+        group,
+        candidate + '.updated_at() - Cache Timestamps Test',
+        () => updated_at_1 < updated_at_2 && updated_at_2 === updated_at_3
     );
 
     log('LOOKUP', 'Finished Testing CachedLookup');

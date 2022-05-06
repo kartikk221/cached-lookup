@@ -190,6 +190,20 @@ class CachedLookup {
         return this.#promises[identifier] !== undefined;
     }
 
+    /**
+     * Returns the last value update timestamp in milliseconds for the provided set of arguments.
+     *
+     * @param {...(SupportedArgumentTypes|Array<SupportedArgumentTypes>)} args
+     * @returns {Number=}
+     */
+    updated_at(...args) {
+        // Retrieve the identifier string for the provided arguments
+        const identifier = this._arguments_to_identifier(Array.from(arguments));
+
+        // Return the updated_at timestamp for the specified arguments
+        return this.#cache[identifier] ? this.#cache[identifier].updated_at : undefined;
+    }
+
     /* CachedLookup Getters */
 
     /**

@@ -91,7 +91,9 @@ Below is a breakdown of the `CachedLookup` class.
   * **Returns** a `Boolean` which specifies whether a cache value was expired or not.
 * `in_flight(...arguments)`: Checks whether a fresh value is currently being resolved for the provided set of arguments.
   * **Returns** a `Boolean` to specify the result.
-* **Note** the `...arguments` are **optional** for all methods above and you may call each function without any arguments to a single global value.
+* `updated_at(...arguments): Returns the last value update timestamp in milliseconds for the provided set of arguments.
+    * **Returns** a `Number` or `undefined` if no cache value exists.
+* **Note** the `...arguments` are **optional** but must be of the following types: `Boolean`, `Number`, `String` or an `Array` of these types.
 
 ## License
 [MIT](./LICENSE)

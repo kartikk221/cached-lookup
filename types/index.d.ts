@@ -50,6 +50,14 @@ export default class CachedLookup<T extends any> {
      */
     in_flight(...args: SupportedArgumentTypes): bool;
 
+    /**
+     * Returns the last value update timestamp in milliseconds for the provided set of arguments.
+     *
+     * @param {...(SupportedArgumentTypes)} args
+     * @returns {Boolean}
+     */
+    updated_at(...args: SupportedArgumentTypes): number | void;
+
     /* CachedLookup Getters */
 
     /**
