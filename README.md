@@ -17,8 +17,8 @@ This package aims to simplify the task of implementing a short-lived caching sys
 ## Features
 - Simple-to-use API
 - TypeScript Support
-- Asynchronous By Nature
 - Customizable Cache Lifetime
+- Parameter Based Caching
 - Dynamic Cache Consumption
 - Extremely Lightweight
 - No Dependencies
@@ -35,24 +35,31 @@ Below is a small snippet that shows how to use a `CachedLookup` instance.
 ```javascript
 const CachedLookup = require('cached-lookup');
 
-// Create an instance that caches for 5 seconds
-// This will ensure, new data is only fetched every 5 seconds
-const CurrencyLookup = new CachedLookup(async () => {
-    // Hit some third-party API to retrieve fresh currency data
-    const result = await get_currency_values();
+// Create a cached lookup instance which fetches music concerts from different cities on a specific date
+const ConcertsLookup = new CachedLookup(async (city) => {
+    // Assume that the function get_city_concerts() is calling a Third-Party API which has a rate limit
+    const concerts = await get_city_concerts(city);
     
-    // Perform some local parsing of the resolved data
-    const parsed = parse_data(result);
-
-    // Return parsed data for cached-lookup to cache and serve instantly for the next 5 seconds
-    return parsed;
+    // Simply return the data and CachedLookup will handle the rest
+    return concerts;
 });
 
-// Some webserver route utilizing the CachedLookup instance to serve currency data
-webserver.get('/api/currency', async (request, response) => {
-    // This will return the cached value for 5 seconds before retrieving a fresh value
-    const data = await CurrencyLookup.cached(5000);
-    return response.send(data);
+// Create some route which serves this data with a 10 second intermittent cache
+webserver.get('/api/concerts/:city', async (request, response) => {
+    // Retrieve the city value from the request - assume there is user validation done on this here
+    const city = request.path_parameters.city;
+
+    // Retrieve data from the CachedLookup with the cached() and pass the city in the call to the lookup handler
+    // Be sure to specify the first parameter as the max_age of the cached value in milliseconds
+    // In our case, 10 seconds would be 10,000 milliseconds
+    const concerts = await ConcertsLookup.cached(1000 * 10, city);
+    
+    // Simply return the data to the user
+    // Because we retrieved this data from the ConcertsLookup with the cached() method
+    // We can safely assume that we will only perform up to 1 Third-Party API request per city every 10 seconds
+    return response.json({
+        concerts
+    });
 });
 ```
 
@@ -61,25 +68,30 @@ Below is a breakdown of the `CachedLookup` class.
 
 #### Constructor Parameters
 * `new CachedLookup(Function: lookup)`: Creates a new CachedLookup instance.
-  * `lookup` [`Function`]: Lookup handler which is invocated to get fresh results.
+  * `lookup` [`Function`]: Lookup handler which is called to get fresh values.
     * **Note!** this callback can be either `synchronous` or `asynchronous`.
     * **Note!** you must return/resolve a value through this callback for the caching to work properly.
+    * **Note!** arguments passed to the methods below will be available in each call to this handler.
 
 #### CachedLookup Properties
 | Property  | Type     | Description                |
 | :-------- | :------- | :------------------------- |
-| `value`   | `Any`    | Most recent cached value   |
-| `updated_at` | `Number` | Unix timestamp in milliseconds of latest update |
-| `in_flight` | `Boolean` | Whether instance is currently looking up a fresh value |
+| `cached`   | `Object`    | Internal cache store used to cache values.   |
 
 #### CachedLookup Methods
-* `cached(Number: max_age)`: Consumes cached value with a fallback to fresh value if cached value has expired.
-    * **Returns** a `Promise` which is then resolved to the lookup value.
+* `cached(Number: max_age, ...arguments)`: Returns the cached value for the provided set of arguments from the lookup handler.
+    * **Returns** a `Promise` which is then resolved to the lookup resolved value.
     * **Note** parameter `max_age` should be a `Number` in `milliseconds` to specify the maximum acceptable cache age.
-    * **Note** this method will reject when the lookup handler also rejects.
-* `fresh()`: Retrieves fresh value from the lookup handler.
-  * **Returns** a `Promise` which is then resolved to the lookup value.   
-* `expire()`: Expires current cached value marking instance to fetch fresh value on next `cached()` invocation.
+    * **Note** this method will automatically fall back to a `fresh()` call if no viable cache value is available.
+    * **Note** the returned `Promise` will **reject** when the lookup handler also rejects.
+    * **Note** the provided `arguments` in after the `max_age` will be available inside of the `lookup` handler function.
+* `fresh(...arguments)`: Retrieves the fresh value for the provided set of arguments from the lookup handler.
+  * **Returns** a `Promise` which is then resolved to the lookup resolved value.   
+* `expire(...arguments)`: Expires the cached value (If one exists) for the provided set of arguments.
+  * **Returns** a `Boolean` which specifies whether a cache value was expired or not.
+* `in_flight(...arguments)`: Checks whether a fresh value is currently being resolved for the provided set of arguments.
+  * **Returns** a `Boolean` to specify the result.
+* **Note** the `...arguments` are **optional** for all methods above and you may call each function without any arguments to a single global value.
 
 ## License
 [MIT](./LICENSE)

@@ -9,26 +9,25 @@ interface ValueRecord {
 
 export default class CachedLookup<T extends any> {
     /**
-     * Constructs a cached lookup with the specified lookup handler.
-     * 
-     * @param lookup 
+     * Creates a new CachedLookup instance with the specified lookup function.
+     * The lookup function can be both synchronous or asynchronous.
+     *
+     * @param {function(...(SupportedArgumentTypes|Array<SupportedArgumentTypes>)):T} lookup
      */
     constructor(lookup: LookupHandler<T>)
 
     /**
-     * Returns cached value if the cached value is not older than the specified maximum age in milliseconds.
-     * This method automatically retrieves a fresh value if the cached value is older than the specified maximum age.
-     * Note! This method will differentiate between values for different sets of arguments.
-     *
+     * Returns a cached value that is up to max_age milliseconds old for the provided set of arguments.
+     * Falls back to a fresh value if the cache value is older than max_age.
+     * 
      * @param {Number} max_age In Milliseconds
-     * @param {...(SupportedArgumentTypes} args
+     * @param {...(SupportedArgumentTypes)} args
      * @returns {Promise<T>}
      */
     cached(max_age: number, ...args: SupportedArgumentTypes): Promise<T>;
 
     /**
-     * Fetches a fresh value from the resolver and returns result.
-     * Note! This method will pass all arguments to the resolver.
+     * Returns a fresh value and automatically updates the internal cache with this value for the provided set of arguments.
      *
      * @param {...(SupportedArgumentTypes)} args
      * @returns {Promise<T>}
@@ -36,15 +35,26 @@ export default class CachedLookup<T extends any> {
     fresh(...args: SupportedArgumentTypes): Promise<T>;
 
     /**
-     * Expires the cache for the provided set of arguments.
+     * Expires the cached value for the provided set of arguments.
+     *
      * @param {...(SupportedArgumentTypes)} args
+     * @returns {Boolean} True if the cache value was expired, false otherwise.
      */
-    expire(...args: SupportedArgumentTypes): void;
+    expire(...args: SupportedArgumentTypes): bool;
+
+    /**
+     * Returns whether a fresh value is currently being resolved for the provided set of arguments.
+     *
+     * @param {...(SupportedArgumentTypes)} args
+     * @returns {Boolean}
+     */
+    in_flight(...args: SupportedArgumentTypes): bool;
 
     /* CachedLookup Getters */
 
     /**
-     * Returns the underlying cache object with all values for all sets of arguments.
+     * Returns the underlying cache object which contains the cached values identified by their serialized arguments.
+     *
      * @returns {Map<String, ValueRecord>}
      */
     get cache(): Map<string, ValueRecord>;
