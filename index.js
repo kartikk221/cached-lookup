@@ -3,8 +3,12 @@
  */
 class CachedLookup {
     #lookup;
-    #cache = {};
     #promises = {};
+
+    /**
+     * Contains the cached values identified by the serialized arguments.
+     */
+    cache = {};
 
     /**
      * @typedef {Boolean|Number|String} SupportedArgumentTypes
@@ -52,7 +56,7 @@ class CachedLookup {
         const identifier = this._arguments_to_identifier(args);
 
         // Attempt to lookup the value record for the specified arguments
-        const record = this.#cache[identifier];
+        const record = this.cache[identifier];
 
         // Return the value record if it exists and is not older than the specified maximum age
         if (record && record.updated_at > Date.now() - max_age) return record;
@@ -70,15 +74,15 @@ class CachedLookup {
         const identifier = this._arguments_to_identifier(args);
 
         // Initialize the record structure for the specified arguments if it does not exist
-        if (!this.#cache[identifier])
-            this.#cache[identifier] = {
+        if (!this.cache[identifier])
+            this.cache[identifier] = {
                 value: null,
                 updated_at: null,
             };
 
         // Fill the record values with the provided value and current timestamp
-        this.#cache[identifier].value = value;
-        this.#cache[identifier].updated_at = Date.now();
+        this.cache[identifier].value = value;
+        this.cache[identifier].updated_at = Date.now();
     }
 
     /**
@@ -169,8 +173,8 @@ class CachedLookup {
         const identifier = this._arguments_to_identifier(Array.from(arguments));
 
         // Remove the cached value record for the specified arguments
-        if (this.#cache[identifier]) {
-            delete this.#cache[identifier];
+        if (this.cache[identifier]) {
+            delete this.cache[identifier];
             return true;
         }
         return false;
@@ -201,18 +205,7 @@ class CachedLookup {
         const identifier = this._arguments_to_identifier(Array.from(arguments));
 
         // Return the updated_at timestamp for the specified arguments
-        return this.#cache[identifier] ? this.#cache[identifier].updated_at : undefined;
-    }
-
-    /* CachedLookup Getters */
-
-    /**
-     * Returns the underlying cache object which contains the cached values identified by their serialized arguments.
-     *
-     * @returns {Map<String, ValueRecord>}
-     */
-    get cache() {
-        return this.#cache;
+        return this.cache[identifier] ? this.cache[identifier].updated_at : undefined;
     }
 }
 
