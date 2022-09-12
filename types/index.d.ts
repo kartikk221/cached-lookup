@@ -8,6 +8,24 @@ interface ValueRecord<T = unknown> {
 
 export default class CachedLookup<T extends unknown> {
     /**
+     * The lookup function that is used to resolve fresh values for the provided arguments.
+     * @type {function(...(SupportedArgumentTypes|Array<SupportedArgumentTypes>)):T}
+     */
+    lookup: LookupHandler<T>;
+
+    /**
+     * Stores the cached values identified by the serialized arguments from lookup calls.
+     * @type {Map<string, ValueRecord<T>>}
+     */
+    cache: Map<string, ValueRecord<T>>;
+
+     /**
+     * Stores the in-flight promises for any pending lookup calls identified by the serialized arguments.
+     * @type {Map<string, Promise<T>>}
+     */
+    promises: Map<string, Promise<T>>;
+
+    /**
      * Creates a new CachedLookup instance with the specified lookup function.
      * The lookup function can be both synchronous or asynchronous.
      *
@@ -57,12 +75,8 @@ export default class CachedLookup<T extends unknown> {
      */
     updated_at(...args: SupportedTypes[]): number | void;
 
-    /* CachedLookup Getters */
-
     /**
-     * Returns the underlying cache object which contains the cached values identified by their serialized arguments.
-     *
-     * @returns {Map<String, ValueRecord<T>>}
+     * Clears all the cached values and resets the internal cache state.
      */
-    get cache(): Map<string, ValueRecord<T>>;
+    clear(): void;
 }

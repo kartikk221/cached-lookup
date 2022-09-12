@@ -118,6 +118,27 @@ async function test_instance() {
         () => updated_at_1 < updated_at_2 && updated_at_2 === updated_at_3
     );
 
+    // Assert that the CachedLookup cache values are expired
+    await async_wait(lookup_delay);
+    const args = arguments;
+    assert_log(
+        group,
+        candidate + '.cached() - Cache Expiration/Cleanup Test',
+        () =>
+            lookup.cache.size === 0 &&
+            lookup.cache.get(...args) === undefined &&
+            lookup.cache.get(Math.random()) === undefined
+    );
+
+    // Perform a clear test by setting random value and clearing
+    await lookup.cached(lookup_delay, ...arguments);
+    lookup.clear();
+    assert_log(
+        group,
+        candidate + '.clear() - Cache Clear Test',
+        () => lookup.cache.size === 0 && lookup.cache.get(...args) === undefined
+    );
+
     log('LOOKUP', 'Finished Testing CachedLookup');
     console.log('\n');
 }
