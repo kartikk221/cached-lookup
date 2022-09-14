@@ -89,7 +89,17 @@ class CachedLookup {
         // Schedule a timeout to remove the cached value record for the specified arguments
         let timeout;
         let max_age = this.#max_ages.get(identifier);
-        if (max_age) timeout = setTimeout((id) => this.cache.delete(id), max_age, identifier);
+        if (max_age)
+            timeout = setTimeout(
+                (id, reference) => {
+                    // Delete the cache record and max age for the specified arguments
+                    reference.cache.delete(id);
+                    reference.#max_ages.delete(id);
+                },
+                max_age,
+                identifier,
+                this
+            );
 
         // Initialize the record structure for the specified arguments if it does not exist
         let record = this.cache.get(identifier);

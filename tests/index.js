@@ -97,6 +97,18 @@ async function test_instance() {
             !expire_attempt_2
     );
 
+    // Assert that the CachedLookup cache values are expired
+    await async_wait(lookup_delay);
+    const args = arguments;
+    assert_log(
+        group,
+        candidate + '.cached() - Cache Expiration/Cleanup Test',
+        () =>
+            lookup.cache.size === 0 &&
+            lookup.cache.get(...args) === undefined &&
+            lookup.cache.get(Math.random()) === undefined
+    );
+
     // Determine if the CachedLookup instance is in flight by performing the second fresh lookup
     let in_flight_1 = lookup.in_flight(...arguments);
     let fresh_lookup_2_promise = with_duration(lookup.fresh(...arguments));
@@ -116,18 +128,6 @@ async function test_instance() {
         group,
         candidate + '.updated_at() - Cache Timestamps Test',
         () => updated_at_1 < updated_at_2 && updated_at_2 === updated_at_3
-    );
-
-    // Assert that the CachedLookup cache values are expired
-    await async_wait(lookup_delay);
-    const args = arguments;
-    assert_log(
-        group,
-        candidate + '.cached() - Cache Expiration/Cleanup Test',
-        () =>
-            lookup.cache.size === 0 &&
-            lookup.cache.get(...args) === undefined &&
-            lookup.cache.get(Math.random()) === undefined
     );
 
     // Perform a clear test by setting random value and clearing
