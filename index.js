@@ -5,6 +5,12 @@ class CachedLookup {
     #max_ages = new Map();
 
     /**
+     * @typedef {Object} ConstructorOptions
+     * @property {boolean} [auto_purge=true] - Whether to automatically purge cache values when they have aged past their last known maximum age.
+     * @property {number} [purge_age_factor=1] - The factor by which to multiply the last known maximum age of a cache value to determine the age at which it should be purged.
+     */
+
+    /**
      * @typedef {Boolean|Number|String} SupportedArgumentTypes
      */
 
@@ -14,6 +20,12 @@ class CachedLookup {
      * @property {Number} timeout
      * @property {Number} updated_at
      */
+
+    /**
+     * The instance constructor options.
+     * @type {ConstructorOptions}
+     */
+    options;
 
     /**
      * The lookup function that is used to resolve fresh values for the provided arguments.
@@ -37,12 +49,25 @@ class CachedLookup {
      * Creates a new CachedLookup instance with the specified lookup function.
      * The lookup function can be both synchronous or asynchronous.
      *
-     * @param {function(...(SupportedArgumentTypes|Array<SupportedArgumentTypes>)):T} lookup
+     * @param {(ConstructorOptions|function(...(SupportedArgumentTypes|Array<SupportedArgumentTypes>)):T)} options
+     * @param {function(...(SupportedArgumentTypes|Array<SupportedArgumentTypes>)):T} [lookup]
      */
-    constructor(lookup) {
+    constructor(options, lookup) {
+        // Use the options as lookup if it is a function
+        if (typeof options === 'function') lookup = options;
+
         // Ensure lookup is a function type
         if (typeof lookup !== 'function') throw new Error('new CachedLookup(lookup) -> lookup must be a Function.');
+
+        // Merge the options with the default options
         this.lookup = lookup;
+        this.options = Object.assign(
+            {
+                auto_purge: true,
+                purge_age_factor: 1,
+            },
+            typeof options === 'object' ? options : {}
+        );
     }
 
     /**
@@ -89,14 +114,16 @@ class CachedLookup {
         // Schedule a timeout to remove the cached value record for the specified arguments
         let timeout;
         let max_age = this.#max_ages.get(identifier);
-        if (max_age)
+        let auto_purge = this.options.auto_purge;
+        let purge_age_factor = this.options.purge_age_factor;
+        if (auto_purge && max_age)
             timeout = setTimeout(
                 (id, reference) => {
                     // Delete the cache record and max age for the specified arguments
                     reference.cache.delete(id);
                     reference.#max_ages.delete(id);
                 },
-                max_age,
+                max_age * purge_age_factor,
                 identifier,
                 this
             );

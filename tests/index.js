@@ -11,6 +11,7 @@ async function lookup_handler() {
     return Array.from(arguments).concat([crypto.randomUUID()]).join('');
 }
 
+let auto_purge = true;
 async function test_instance() {
     const group = 'LOOKUP';
     const candidate = 'CachedLookup';
@@ -18,7 +19,15 @@ async function test_instance() {
     log('LOOKUP', 'Testing With Arguments: ' + (seralized.length > 0 ? JSON.stringify(seralized) : 'None'));
 
     // Create a new CachedLookup instance
-    const lookup = new CachedLookup(lookup_handler);
+    const lookup = new CachedLookup(
+        {
+            auto_purge,
+        },
+        lookup_handler
+    );
+
+    // Flip the auto_purge flag
+    auto_purge = !auto_purge;
 
     // Perform the first lookup
     let [cached_value_1, cached_duration_1] = await with_duration(lookup.cached(lookup_delay, ...arguments)); // This should be fresh
@@ -99,15 +108,26 @@ async function test_instance() {
 
     // Assert that the CachedLookup cache values are expired
     await async_wait(lookup_delay);
-    const args = arguments;
-    assert_log(
-        group,
-        candidate + '.cached() - Cache Expiration/Cleanup Test',
-        () =>
-            lookup.cache.size === 0 &&
-            lookup.cache.get(...args) === undefined &&
-            lookup.cache.get(Math.random()) === undefined
-    );
+    const args = Array.from(arguments);
+    if (lookup.options.auto_purge) {
+        assert_log(
+            group,
+            candidate + '.cached() - Cache Expiration/Cleanup Test',
+            () =>
+                lookup.cache.size === 0 &&
+                lookup.cache.get(args.join('')) === undefined &&
+                lookup.cache.get(Math.random()) === undefined
+        );
+    } else {
+        assert_log(
+            group,
+            candidate + '.cached() - Cache Retention Test',
+            () =>
+                lookup.cache.size === 1 &&
+                lookup.cache.get(args.join('')) !== undefined &&
+                lookup.cache.get(Math.random()) === undefined
+        );
+    }
 
     // Determine if the CachedLookup instance is in flight by performing the second fresh lookup
     let in_flight_1 = lookup.in_flight(...arguments);
@@ -136,7 +156,7 @@ async function test_instance() {
     assert_log(
         group,
         candidate + '.clear() - Cache Clear Test',
-        () => lookup.cache.size === 0 && lookup.cache.get(...args) === undefined
+        () => lookup.cache.size === 0 && lookup.cache.get(args.join('')) === undefined
     );
 
     log('LOOKUP', 'Finished Testing CachedLookup');
