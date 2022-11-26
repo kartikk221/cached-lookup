@@ -65,7 +65,13 @@ webserver.get('/api/concerts/:country/:state/:city', async (request, response) =
 Below is a breakdown of the `CachedLookup` class.
 
 #### Constructor Parameters
-* `new CachedLookup(Function: lookup)`: Creates a new CachedLookup instance.
+* `new CachedLookup(Function: lookup)`: Creates a new CachedLookup instance with default `options`.
+* `new CachedLookup(Object?: options, Function(...arguments): lookup)`: Creates a new CachedLookup instance with custom `options`.
+  * `options` [`Object`]: Constructor options for this instance.
+    * `auto_purge` [`Boolean`]: Whether to automatically purge cache values when they have aged past their last known maximum age.
+      * **Default**: `true`
+    * `purge_age_factor` [`Number`]: The factor by which to multiply the last known maximum age of a cache value to determine the age at which it should be purged.
+      * **Default**: `1`
   * `lookup` [`Function`]: Lookup handler which is called to get fresh values.
     * **Note!** this callback can be either `synchronous` or `asynchronous`.
     * **Note!** you must `return`/`resolve` a value through this callback for the caching to work properly.
@@ -74,9 +80,9 @@ Below is a breakdown of the `CachedLookup` class.
 #### CachedLookup Properties
 | Property  | Type     | Description                |
 | :-------- | :------- | :------------------------- |
-| `lookup`   | `function`    | Lookup handler of this instance.   |
-| `cache`   | `Map<string, Object>`    | Internal map of cached values.   |
-| `promises`   | `Map<string, Object>`    | Internal map of promises for pending lookups.   |
+| `lookup`   | `function(...arguments)`    | Lookup handler of this instance.   |
+| `cache`   | `Map<string, ValueRecord>`    | Internal map of cached values.   |
+| `promises`   | `Map<string, Promise<T>>`    | Internal map of promises for pending lookups.   |
 
 #### CachedLookup Methods
 * `cached(Number: max_age, ...arguments)`: Returns the `cached` value for the provided set of `arguments` from the lookup handler.
@@ -95,6 +101,13 @@ Below is a breakdown of the `CachedLookup` class.
     * **Returns** a `Number` or `undefined` if no cached value exists.
 * `clear()`: Clears all the cached values and resets the internal cache state.
 * **Note** the `...arguments` are **optional** but must be of the following types: `Boolean`, `Number`, `String` or an `Array` of these types.
+
+### ValueRecord Properties
+| Property  | Type     | Description                |
+| :-------- | :------- | :------------------------- |
+| `value`   | `T (Generic)`    | The cached value.   |
+| `timeout`   | `null | Number`    | The expiry timeout id if one exists.   |
+| `updated_at`   | `Number`    | Timestamp (In milliseconds) of when this value was cached.   |
 
 ## License
 [MIT](./LICENSE)
