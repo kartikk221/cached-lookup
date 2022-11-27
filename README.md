@@ -71,7 +71,7 @@ Below is a breakdown of the `CachedLookup` class.
     * `auto_purge` [`Boolean`]: Whether to automatically purge cache values when they have aged past their last known maximum age.
       * **Default**: `true`
     * `purge_age_factor` [`Number`]: The factor by which to multiply the last known maximum age of a cache value to determine the age at which it should be purged.
-      * **Default**: `1`
+      * **Default**: `1.5`
   * `lookup` [`Function`]: Lookup handler which is called to get fresh values.
     * **Note!** this callback can be either `synchronous` or `asynchronous`.
     * **Note!** you must `return`/`resolve` a value through this callback for the caching to work properly.
@@ -85,12 +85,16 @@ Below is a breakdown of the `CachedLookup` class.
 | `promises`   | `Map<string, Promise<T>>`    | Internal map of promises for pending lookups.   |
 
 #### CachedLookup Methods
-* `cached(Number: max_age, ...arguments)`: Returns the `cached` value for the provided set of `arguments` from the lookup handler.
+* `cached(Number: max_age, ...arguments)`: Returns the `cached` value for the provided set of `arguments` from the lookup handler. Automatically falls back to a `fresh()` value if no cached value within the `max_age` is available.
     * **Returns** a `Promise` which is resolved to the `cached` value with a fall back to the `fresh` value.
-    * **Note** the arameter `max_age` should be a `Number` in `milliseconds` to specify the maximum acceptable cache age.
+    * **Note** the parameter `max_age` should be a `Number` in `milliseconds` to specify the maximum acceptable cache age.
     * **Note** this method will automatically fall back to a `fresh()` call if no viable cache value is available.
     * **Note** the returned `Promise` will **reject** when the lookup handler also rejects.
     * **Note** the provided `arguments` after the `max_age` will be available inside of the `lookup` handler function.
+    * **Note** this method should be used over `rolling()` if you want to ensure cache freshness within the `max_age` threshold at the sacrifice of increased latency whenever a `fresh()` is resolved to satify the `max_age` requirement.
+* `rolling(Number: target_age, ...arguments)`: Returns the `cached` value for the provided set of `arguments` from the lookup handler. Instantly resolves the most recently cached value while triggering a `fresh()` value call in the background to reload the cache on a rolling basis according to the `target_age`.
+    * **Note** this method has the same signature as the `cached()` method above.
+    * **Note** this method should be used over `cached()` if you want to maintain low latency at the sacrifice of guaranteed cache freshness.
 * `fresh(...arguments)`: Retrieves the `fresh` value for the provided set of arguments from the lookup handler.
   * **Returns** a `Promise` which is resolved to the `fresh` value.   
 * `expire(...arguments)`: Expires the `cached` value for the provided set of arguments.

@@ -150,6 +150,42 @@ async function test_instance() {
         () => updated_at_1 < updated_at_2 && updated_at_2 === updated_at_3
     );
 
+    // Perform a rolling lookup test
+    lookup.cache.clear();
+    let rolling_start = Date.now();
+    let rolling_lookup_1 = await lookup.rolling(lookup_delay, ...arguments);
+    let rolling_finish_1 = Date.now() - rolling_start;
+
+    rolling_start = Date.now();
+    let rolling_lookup_2 = await lookup.rolling(lookup_delay, ...arguments);
+    let rolling_finish_2 = Date.now() - rolling_start;
+
+    await async_wait(lookup_delay + 1);
+    rolling_start = Date.now();
+    let rolling_lookup_3 = await lookup.rolling(lookup_delay, ...arguments);
+    let rolling_finish_3 = Date.now() - rolling_start;
+
+    await async_wait(lookup_delay + 1);
+    rolling_start = Date.now();
+    let rolling_lookup_4 = await lookup.rolling(lookup_delay, ...arguments);
+    let rolling_finish_4 = Date.now() - rolling_start;
+
+    // Assert that the CachedLookup.rolling() method returned the correct values
+    assert_log(
+        group,
+        candidate + '.rolling() - Lookup Values Test',
+        () =>
+            // Ensure all the rolling lookup resolve times are constant and lower than the lookup delay
+            rolling_finish_1 > lookup_delay &&
+            rolling_finish_2 < lookup_delay &&
+            rolling_finish_3 < lookup_delay &&
+            rolling_finish_4 < lookup_delay &&
+            // Ensure the values 1, 2, and 3 are same while 4 is different because value 3 should trigger the rolling lookup but resolve by the time 4 is called
+            rolling_lookup_1 === rolling_lookup_2 &&
+            rolling_lookup_2 === rolling_lookup_3 &&
+            rolling_lookup_3 !== rolling_lookup_4
+    );
+
     // Perform a clear test by setting random value and clearing
     await lookup.cached(lookup_delay, ...arguments);
     lookup.clear();

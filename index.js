@@ -69,7 +69,7 @@ class CachedLookup {
         this.options = Object.assign(
             {
                 auto_purge: true,
-                purge_age_factor: 1,
+                purge_age_factor: 1.5, // By default purge values that are one and half times their maximum age
             },
             typeof options === 'object' ? options : {}
         );
@@ -201,8 +201,8 @@ class CachedLookup {
     }
 
     /**
-     * Returns a cached value that is up to max_age milliseconds old for the provided set of arguments.
-     * Falls back to a fresh value if the cache value is older than max_age.
+     * Returns a `cached` value that is up to `max_age` milliseconds old when available and falls back to a fresh value if not.
+     * Use this method over `rolling` if you want to guarantee that the cached value is up to `max_age` milliseconds old at the sacrifice of increased latency whenever a `fresh` value is required.
      *
      * @param {Number} max_age In Milliseconds
      * @param {...(SupportedArgumentTypes|Array<SupportedArgumentTypes>)} args
@@ -227,44 +227,44 @@ class CachedLookup {
     }
 
     /**
-     * Returns a periodically refreshed value that is refreshed on a rolling basis based on the max_age.
-     * Note! This method will return a cached value while the refresh is in progress allowing for lower latency compared to `cached()`.
-     * As a last resort, a fresh value will be returned if no cache value is available.
+     * Returns a `cached` value that is around `max_age` milliseconds old when available and instantly resolves the most recently `cached` value while also updating the cache with a fresh value in the background.
+     * Use this method over `cached` if you want low latency at the sacrifice of a guaranteed age of the cached value.
      *
-     * @param {Number} max_age In Milliseconds
+     * @param {Number} target_age In Milliseconds
      * @param {...(SupportedArgumentTypes|Array<SupportedArgumentTypes>)} args
      * @returns {Promise<T>}
      */
-    rolling(max_age, ...args) {
-        // Ensure max_age is a valid number between 0 and maximum signed 32-bit integer
-        if (typeof max_age !== 'number' || max_age < 0 || max_age > 2147483647)
+    rolling(target_age, ...args) {
+        // Ensure target_age is a valid number between 0 and maximum signed 32-bit integer
+        if (typeof target_age !== 'number' || target_age < 0 || target_age > 2147483647)
             throw new Error(
-                'CachedLookup.rolling(max_age) -> max_age must be a number that is greater than zero but less than 2147483647 (setTimeout limit).'
+                'CachedLookup.rolling(target_age) -> target_age must be a number that is greater than zero but less than 2147483647 (setTimeout limit).'
             );
 
-        // Retrieve a serialized Array of arguments ignoring the first argument (max_age)
+        // Retrieve a serialized Array of arguments ignoring the first argument (target_age)
         const serialized = Array.from(arguments).slice(1);
 
-        // Attempt to resolve a cached value that is within the desired max_age
-        const record = this._get_cache(serialized, max_age);
+        // Attempt to resolve a cached value that is within the desired target_age
+        const record = this._get_cache(serialized, target_age);
         if (record) return Promise.resolve(record.value);
 
-        // Attempt to resolve a cached value regardless of max_age
+        // Attempt to resolve a cached value regardless of target_age
         const cached = this._get_cache(serialized, Date.now());
         if (cached) {
             // Begin a new cached call for the cached value if not in flight
-            if (!this.in_flight(...serialized)) this.cached(max_age, ...serialized);
+            if (!this.in_flight(...serialized)) this.cached(target_age, ...serialized);
 
             // Resolve the old but valid cached value
             return Promise.resolve(cached.value);
         } else {
             // Resolve a cached call as a last resort
-            return this.cached(max_age, ...serialized);
+            return this.cached(target_age, ...serialized);
         }
     }
 
     /**
-     * Returns a fresh value and automatically updates the internal cache with this value for the provided set of arguments.
+     * Returns a fresh value for the provided arguments.
+     * Note! This method will automatically update the internal cache with the fresh value.
      *
      * @param {...(SupportedArgumentTypes|Array<SupportedArgumentTypes>)} args
      * @returns {Promise<T>}

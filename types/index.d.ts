@@ -34,8 +34,8 @@ export default class CachedLookup<T extends unknown> {
     constructor(lookup: LookupHandler<T>);
 
     /**
-     * Returns a cached value that is up to max_age milliseconds old for the provided set of arguments.
-     * Falls back to a fresh value if the cache value is older than max_age.
+     * Returns a `cached` value that is up to `max_age` milliseconds old when available and falls back to a fresh value if not.
+     * Use this method over `rolling` if you want to guarantee that the cached value is up to `max_age` milliseconds old at the sacrifice of increased latency whenever a `fresh` value is required.
      *
      * @param {Number} max_age In Milliseconds
      * @param {Array<SupportedTypes>} args
@@ -44,9 +44,8 @@ export default class CachedLookup<T extends unknown> {
     cached(max_age: number, ...args: SupportedTypes[]): Promise<T>;
 
     /**
-     * Returns a periodically refreshed value that is refreshed on a rolling basis based on the max_age.
-     * Note! This method will return a cached value while the refresh is in progress allowing for lower latency compared to `cached()`.
-     * As a last resort, a fresh value will be returned if no cache value is available.
+     * Returns a `cached` value that is around `max_age` milliseconds old when available and instantly resolves the most recently `cached` value while also updating the cache with a fresh value in the background.
+     * Use this method over `cached` if you want low latency at the sacrifice of a guaranteed age of the cached value.
      *
      * @param {Number} max_age In Milliseconds
      * @param {Array<SupportedTypes>} args
@@ -55,7 +54,8 @@ export default class CachedLookup<T extends unknown> {
     rolling(max_age: number, ...args: SupportedTypes[]): Promise<T>;
 
     /**
-     * Returns a fresh value and automatically updates the internal cache with this value for the provided set of arguments.
+     * Returns a fresh value for the provided arguments.
+     * Note! This method will automatically update the internal cache with the fresh value.
      *
      * @param {Array<SupportedTypes>} args
      * @returns {Promise<T>}
