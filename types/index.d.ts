@@ -9,7 +9,7 @@ interface ValueRecord<T = unknown> {
 export default class CachedLookup<T extends unknown> {
     /**
      * The lookup function that is used to resolve fresh values for the provided arguments.
-     * @type {function(...(SupportedArgumentTypes|Array<SupportedArgumentTypes>)):T}
+     * @type {function(...(SupportedArgumentTypes|Array<SupportedArgumentTypes>)):T|Promise<T>}
      */
     lookup: LookupHandler<T>;
 
@@ -19,7 +19,7 @@ export default class CachedLookup<T extends unknown> {
      */
     cache: Map<string, ValueRecord<T>>;
 
-     /**
+    /**
      * Stores the in-flight promises for any pending lookup calls identified by the serialized arguments.
      * @type {Map<string, Promise<T>>}
      */
@@ -42,6 +42,17 @@ export default class CachedLookup<T extends unknown> {
      * @returns {Promise<T>}
      */
     cached(max_age: number, ...args: SupportedTypes[]): Promise<T>;
+
+    /**
+     * Returns a periodically refreshed value that is refreshed on a rolling basis based on the max_age.
+     * Note! This method will return a cached value while the refresh is in progress allowing for lower latency compared to `cached()`.
+     * As a last resort, a fresh value will be returned if no cache value is available.
+     *
+     * @param {Number} max_age In Milliseconds
+     * @param {Array<SupportedTypes>} args
+     * @returns {Promise<T>}
+     */
+    rolling(max_age: number, ...args: SupportedTypes[]): Promise<T>;
 
     /**
      * Returns a fresh value and automatically updates the internal cache with this value for the provided set of arguments.

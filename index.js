@@ -2,13 +2,8 @@
  * @template T
  */
 class CachedLookup {
+    // Private properties
     #max_ages = new Map();
-
-    /**
-     * @typedef {Object} ConstructorOptions
-     * @property {boolean} [auto_purge=true] - Whether to automatically purge cache values when they have aged past their last known maximum age.
-     * @property {number} [purge_age_factor=1] - The factor by which to multiply the last known maximum age of a cache value to determine the age at which it should be purged.
-     */
 
     /**
      * @typedef {Boolean|Number|String} SupportedArgumentTypes
@@ -22,6 +17,16 @@ class CachedLookup {
      */
 
     /**
+     * @typedef {Object} ConstructorOptions
+     * @property {boolean} [auto_purge=true] - Whether to automatically purge cache values when they have aged past their last known maximum age.
+     * @property {number} [purge_age_factor=1] - The factor by which to multiply the last known maximum age of a cache value to determine the age at which it should be purged.
+     */
+
+    /**
+     * @typedef {function(...(SupportedArgumentTypes|Array<SupportedArgumentTypes>)):T|Promise<T>} LookupFunction
+     */
+
+    /**
      * The instance constructor options.
      * @type {ConstructorOptions}
      */
@@ -29,7 +34,7 @@ class CachedLookup {
 
     /**
      * The lookup function that is used to resolve fresh values for the provided arguments.
-     * @type {function(...(SupportedArgumentTypes|Array<SupportedArgumentTypes>)):T}
+     * @type {LookupFunction}
      */
     lookup;
 
@@ -49,8 +54,8 @@ class CachedLookup {
      * Creates a new CachedLookup instance with the specified lookup function.
      * The lookup function can be both synchronous or asynchronous.
      *
-     * @param {(ConstructorOptions|function(...(SupportedArgumentTypes|Array<SupportedArgumentTypes>)):T)} options
-     * @param {function(...(SupportedArgumentTypes|Array<SupportedArgumentTypes>)):T} [lookup]
+     * @param {(ConstructorOptions|LookupFunction)} options - The constructor options or lookup function.
+     * @param {LookupFunction} [lookup] - The lookup function if the first argument is the constructor options.
      */
     constructor(options, lookup) {
         // Use the options as lookup if it is a function
@@ -219,6 +224,43 @@ class CachedLookup {
 
         // Resolve the fresh value for the provided arguments in array serialization
         return this._get_fresh_value(serialized, max_age);
+    }
+
+    /**
+     * Returns a periodically refreshed value that is refreshed on a rolling basis based on the max_age.
+     * Note! This method will return a cached value while the refresh is in progress allowing for lower latency compared to `cached()`.
+     * As a last resort, a fresh value will be returned if no cache value is available.
+     *
+     * @param {Number} max_age In Milliseconds
+     * @param {...(SupportedArgumentTypes|Array<SupportedArgumentTypes>)} args
+     * @returns {Promise<T>}
+     */
+    rolling(max_age, ...args) {
+        // Ensure max_age is a valid number between 0 and maximum signed 32-bit integer
+        if (typeof max_age !== 'number' || max_age < 0 || max_age > 2147483647)
+            throw new Error(
+                'CachedLookup.rolling(max_age) -> max_age must be a number that is greater than zero but less than 2147483647 (setTimeout limit).'
+            );
+
+        // Retrieve a serialized Array of arguments ignoring the first argument (max_age)
+        const serialized = Array.from(arguments).slice(1);
+
+        // Attempt to resolve a cached value that is within the desired max_age
+        const record = this._get_cache(serialized, max_age);
+        if (record) return Promise.resolve(record.value);
+
+        // Attempt to resolve a cached value regardless of max_age
+        const cached = this._get_cache(serialized, Date.now());
+        if (cached) {
+            // Begin a new cached call for the cached value if not in flight
+            if (!this.in_flight(...serialized)) this.cached(max_age, ...serialized);
+
+            // Resolve the old but valid cached value
+            return Promise.resolve(cached.value);
+        } else {
+            // Resolve a cached call as a last resort
+            return this.cached(max_age, ...serialized);
+        }
     }
 
     /**
