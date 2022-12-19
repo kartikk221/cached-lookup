@@ -7,8 +7,8 @@ interface ValueRecord<T = unknown> {
 }
 
 interface ConstructorOptions {
-    auto_purge: true;
-    purge_age_factor: 1.5;
+    auto_purge?: boolean;
+    purge_age_factor?: number;
 }
 
 export default class CachedLookup<T extends unknown> {
