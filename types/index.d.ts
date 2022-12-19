@@ -6,6 +6,11 @@ interface ValueRecord<T = unknown> {
     updated_at: number;
 }
 
+interface ConstructorOptions {
+    auto_purge: true;
+    purge_age_factor: 1.5;
+}
+
 export default class CachedLookup<T extends unknown> {
     /**
      * The lookup function that is used to resolve fresh values for the provided arguments.
@@ -29,9 +34,18 @@ export default class CachedLookup<T extends unknown> {
      * Creates a new CachedLookup instance with the specified lookup function.
      * The lookup function can be both synchronous or asynchronous.
      *
-     * @param {LookupHandler<T>} lookup
+     * @param {LookupHandler} [lookup] - The lookup function if the first argument is the constructor options.
      */
     constructor(lookup: LookupHandler<T>);
+
+    /**
+     * Creates a new CachedLookup instance with the specified lookup function.
+     * The lookup function can be both synchronous or asynchronous.
+     *
+     * @param {ConstructorOptions} [options] - The constructor options.
+     * @param {LookupHandler} [lookup] - The lookup function if the first argument is the constructor options.
+     */
+    constructor(options: ConstructorOptions, lookup: LookupHandler<T>);
 
     /**
      * Returns a `cached` value that is up to `max_age` milliseconds old when available and falls back to a fresh value if not.

@@ -19,7 +19,7 @@ class CachedLookup {
     /**
      * @typedef {Object} ConstructorOptions
      * @property {boolean} [auto_purge=true] - Whether to automatically purge cache values when they have aged past their last known maximum age.
-     * @property {number} [purge_age_factor=1] - The factor by which to multiply the last known maximum age of a cache value to determine the age at which it should be purged.
+     * @property {number} [purge_age_factor=1.5] - The factor by which to multiply the last known maximum age of a cache value to determine the age at which it should be purged.
      */
 
     /**
