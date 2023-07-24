@@ -107,25 +107,21 @@ async function test_instance() {
     );
 
     // Assert that the CachedLookup cache values are expired
-    await async_wait(lookup_delay);
+    await async_wait(lookup_delay * (lookup.options.auto_purge ? lookup.options.purge_age_factor : 1) * 2);
     const args = Array.from(arguments);
     if (lookup.options.auto_purge) {
         assert_log(
             group,
             candidate + '.cached() - Cache Expiration/Cleanup Test',
             () =>
-                lookup.cache.size === 0 &&
-                lookup.cache.get(args.join('')) === undefined &&
-                lookup.cache.get(Math.random()) === undefined
+                lookup.cache.size === 0 && lookup.get(...args) === undefined && lookup.get(Math.random()) === undefined
         );
     } else {
         assert_log(
             group,
             candidate + '.cached() - Cache Retention Test',
             () =>
-                lookup.cache.size === 1 &&
-                lookup.cache.get(args.join('')) !== undefined &&
-                lookup.cache.get(Math.random()) === undefined
+                lookup.cache.size === 1 && lookup.get(...args) !== undefined && lookup.get(Math.random()) === undefined
         );
     }
 
@@ -192,7 +188,7 @@ async function test_instance() {
     assert_log(
         group,
         candidate + '.clear() - Cache Clear Test',
-        () => lookup.cache.size === 0 && lookup.cache.get(args.join('')) === undefined
+        () => lookup.cache.size === 0 && lookup.get(...args) === undefined
     );
 
     log('LOOKUP', 'Finished Testing CachedLookup');

@@ -10,11 +10,16 @@ const EventEmitter = require('events');
  */
 class CachedLookup extends EventEmitter {
     #delimiter = ',';
+    #cleanup = {
+        timeout: null,
+        expected_at: null,
+    };
 
     /**
      * @typedef {Object} CachedRecord
      * @property {T} value
-     * @property {Number} updated_at
+     * @property {number=} max_age
+     * @property {number} updated_at
      */
 
     /**
@@ -48,9 +53,10 @@ class CachedLookup extends EventEmitter {
     promises = new Map();
 
     /**
-     * @typedef {Object} LookupOptions
+     * @typedef {Object} ConstructorOptions
      * @property {boolean} [auto_purge=true] - Whether to automatically purge cache values when they have aged past their last known maximum age.
      * @property {number} [purge_age_factor=1.5] - The factor by which to multiply the last known maximum age of a stale cache value to determine the age after which it should be purged from memory.
+     * @property {number} [max_purge_eloop_tick=5000] - The number of items to purge from the cache per event loop tick. Decrease this value to reduce the impact of purging stale cache values on the event loop when working with many unique arguments.
      */
 
     /**
@@ -84,6 +90,7 @@ class CachedLookup extends EventEmitter {
         this.options = Object.freeze({
             auto_purge: true, // By default automatically purge cache values when they have aged past their last known maximum age
             purge_age_factor: 1.5, // By default purge values that are one and half times their maximum age
+            max_purge_eloop_tick: 5000, // By default purge 5000 items per event loop tick
             ...(typeof options === 'object' ? options : {}),
         });
     }
@@ -101,9 +108,16 @@ class CachedLookup extends EventEmitter {
         const record = this.cache.get(identifier);
         if (!record) return;
 
+        // Schedule a cache cleanup for this entry if a max_age was provided
+        if (max_age !== undefined) this._schedule_cache_cleanup(max_age);
+
         // Ensure the value is not older than the specified maximum age if provided
         if (max_age !== undefined && Date.now() - max_age > record.updated_at) return;
 
+        // Update the record max_age if it is smaller than the provided max_age
+        if (max_age !== undefined && max_age < (record.max_age || Infinity)) record.max_age = max_age;
+
+        // Return the cached value record
         return record;
     }
 
@@ -112,23 +126,93 @@ class CachedLookup extends EventEmitter {
      *
      * @private
      * @param {string} identifier
+     * @param {number=} max_age
      * @param {T} value
      */
-    _set_in_cache(identifier, value) {
+    _set_in_cache(identifier, max_age, value) {
         const now = Date.now();
 
         // Retrieve the cached value record for this identifier from the cache
         const record = this.cache.get(identifier) || {
             value,
+            max_age,
             updated_at: now,
         };
 
-        // Update the cached value record with the provided value and the current timestamp
+        // Update the record values
         record.value = value;
         record.updated_at = now;
+        record.max_age = max_age;
 
         // Store the updated cached value record in the cache
         this.cache.set(identifier, record);
+
+        // Schedule a cache cleanup for this entry if a max_age was provided
+        if (max_age !== undefined) this._schedule_cache_cleanup(max_age);
+    }
+
+    /**
+     * Schedules a cache cleanup to purge stale cache values if the provided `max_age` is earlier than the next expected cleanup.
+     *
+     * @param {number} max_age
+     * @returns {boolean} Whether a sooner cleanup was scheduled.
+     */
+    _schedule_cache_cleanup(max_age) {
+        // Do not schedule anything if auto_purge is disabled
+        if (!this.options.auto_purge) return false;
+
+        // Increase the max_age by the purge_age_factor to determine the true max_age of the cached value
+        max_age *= this.options.purge_age_factor;
+
+        // Return false if the scheduled expected cleanup is sooner than the provided max_age as there is no need to expedite the cleanup
+        const now = Date.now();
+        const { timeout, expected_at } = this.#cleanup;
+        if (timeout && expected_at && expected_at <= now + max_age) return false;
+
+        // Clear the existing cleanup timeout if one exists
+        if (timeout) clearTimeout(timeout);
+
+        // Create a new cleanup timeout to purge stale cache values
+        this.#cleanup.expected_at = now + max_age;
+        this.#cleanup.timeout = setTimeout(async () => {
+            // Clear the existing cleanup timeout
+            this.#cleanup.timeout = null;
+            this.#cleanup.expected_at = null;
+
+            // Purge stale cache values
+            let count = 0;
+            let now = Date.now();
+            let nearest_expiry_at = Number.MAX_SAFE_INTEGER;
+            for (const [identifier, { max_age, updated_at, value }] of this.cache) {
+                // Flush the event loop every max purge items per synchronous event loop tick
+                if (count % this.options.max_purge_eloop_tick === 0) {
+                    await new Promise((resolve) => setTimeout(resolve, 0));
+                }
+                count++;
+
+                // Skip if the cached value does not have a max value to determine if it is stale
+                if (!max_age) continue;
+
+                // Skip this cached value if it is not stale
+                const stale = now - max_age > updated_at;
+                if (!stale) {
+                    // Update the nearest expiry timestamp if this cached value is closer than the previous one
+                    const expiry_at = updated_at + max_age;
+                    if (expiry_at < nearest_expiry_at) nearest_expiry_at = expiry_at;
+
+                    // Skip this cached value
+                    continue;
+                }
+
+                // Delete the stale cached value
+                this.cache.delete(identifier);
+            }
+
+            // Schedule another cleanup if there are still more values remaining in the cache
+            if (this.cache.size && nearest_expiry_at < Number.MAX_SAFE_INTEGER) {
+                this._schedule_cache_cleanup(nearest_expiry_at - now);
+            }
+        }, Math.min(max_age, 2147483647)); // Do not allow the timeout to exceed the maximum timeout value of 2147483647 as it will cause an overflow error
     }
 
     /**
@@ -161,7 +245,7 @@ class CachedLookup extends EventEmitter {
             // Check if a value was resolved from the lookup without any errors
             if (value) {
                 // Cache the fresh value for this identifier
-                this._set_in_cache(identifier, value);
+                this._set_in_cache(identifier, max_age, value);
 
                 // Emit a 'fresh' event with the fresh value and the provided arguments
                 this.emit('fresh', value, ...args);
@@ -233,7 +317,7 @@ class CachedLookup extends EventEmitter {
         const identifier = args.join(this.#delimiter);
 
         // Attempt to resolve the cached value from the cached value record
-        const record = this._get_from_cache(identifier, max_age);
+        const record = this._get_from_cache(identifier, target_age);
         if (record) return Promise.resolve(record.value);
 
         // Lookup the cached value for the provided arguments

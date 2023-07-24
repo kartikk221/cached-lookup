@@ -37,7 +37,7 @@ const CachedLookup = require('cached-lookup');
 const ConcertsLookup = new CachedLookup(async (country, state, city) => {
     // Assume that the function get_city_concerts() is calling a Third-Party API which has a rate limit
     const concerts = await get_city_concerts(country, state, city);
-    
+
     // Simply return the data and CachedLookup will handle the rest
     return concerts;
 });
@@ -51,7 +51,7 @@ webserver.get('/api/concerts/:country/:state/:city', async (request, response) =
     // Be sure to specify the first parameter as the max_age of the cached value in milliseconds
     // In our case, 10 seconds would be 10,000 milliseconds
     const concerts = await ConcertsLookup.cached(1000 * 10, country, state, city);
-    
+
     // Simply return the data to the user
     // Because we retrieved this data from the ConcertsLookup with the cached() method
     // We can safely assume that we will only perform up to 1 Third-Party API request per city every 10 seconds
@@ -96,7 +96,9 @@ Below is a breakdown of the `CachedLookup` class.
     * **Note** this method has the same signature as the `cached()` method above.
     * **Note** this method should be used over `cached()` if you want to maintain low latency at the sacrifice of guaranteed cache freshness.
 * `fresh(...arguments)`: Retrieves the `fresh` value for the provided set of arguments from the lookup handler.
-  * **Returns** a `Promise` which is resolved to the `fresh` value.   
+  * **Returns** a `Promise` which is resolved to the `fresh` value.
+* `get(...arguments)`: Returns the `cached` value for the provided set of arguments if one exists in cache.
+  * **Returns** the `cached` value or `undefined`.
 * `expire(...arguments)`: Expires the `cached` value for the provided set of arguments.
   * **Returns** a `Boolean` which specifies whether a `cached` value was expired or not.
 * `in_flight(...arguments)`: Checks whether a `fresh` value is currently being resolved for the provided set of arguments.
