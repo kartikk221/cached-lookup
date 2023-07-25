@@ -4,6 +4,7 @@ const { log, assert_log, async_wait, with_duration } = require('./operators.js')
 
 // Track the last lookup arguments
 let lookup_delay = 50;
+let error_margin_ms = 50;
 let last_lookup_arguments;
 async function lookup_handler() {
     await async_wait(lookup_delay);
@@ -107,7 +108,9 @@ async function test_instance() {
     );
 
     // Assert that the CachedLookup cache values are expired
-    await async_wait(lookup_delay * (lookup.options.auto_purge ? lookup.options.purge_age_factor : 1) * 2);
+    await async_wait(
+        lookup_delay * (lookup.options.auto_purge ? lookup.options.purge_age_factor : 1) + error_margin_ms
+    );
     const args = Array.from(arguments);
     if (lookup.options.auto_purge) {
         assert_log(
@@ -190,6 +193,22 @@ async function test_instance() {
         candidate + '.clear() - Cache Clear Test',
         () => lookup.cache.size === 0 && lookup.get(...args) === undefined
     );
+
+    // Perform a test on the internal cache cleanup scheduler if auto_purge is enabled
+    if (lookup.options.auto_purge) {
+        await Promise.all([
+            lookup.cached(lookup_delay * 3, Math.random()),
+            lookup.cached(lookup_delay * 2, Math.random()),
+            lookup.cached(lookup_delay, Math.random()),
+        ]);
+        assert_log(group, candidate + ' Cache Cleanup Scheduler Populated Test', () => lookup.cache.size === 3);
+
+        // Wait for the cache cleanup scheduler to run and clear the cache
+        await async_wait(
+            lookup_delay * (lookup.options.auto_purge ? lookup.options.purge_age_factor : 1) * 4 + error_margin_ms
+        );
+        assert_log(group, candidate + ' Cache Cleanup Scheduler Cleared Test', () => lookup.cache.size === 0);
+    }
 
     log('LOOKUP', 'Finished Testing CachedLookup');
     console.log('\n');

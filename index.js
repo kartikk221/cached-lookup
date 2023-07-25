@@ -96,6 +96,29 @@ class CachedLookup extends EventEmitter {
     }
 
     /**
+     * Returns an Array of arguments from a serialized string.
+     * @private
+     * @param {string} serialized
+     * @returns {SerializableArgumentTypes[]}
+     */
+    _parse_arguments(serialized) {
+        return serialized.split(this.#delimiter).map((arg) => {
+            // Handle null values
+            if (arg === 'null') return null;
+
+            // Handle boolean values
+            if (arg === 'true') return true;
+            if (arg === 'false') return false;
+
+            // Handle number values
+            if (!isNaN(arg)) return Number(arg);
+
+            // Handle string values
+            return arg;
+        });
+    }
+
+    /**
      * Reads the most up to date cached value record for the provided set of arguments if it exists and is not older than the specified maximum age.
      *
      * @private
@@ -183,7 +206,7 @@ class CachedLookup extends EventEmitter {
             let count = 0;
             let now = Date.now();
             let nearest_expiry_at = Number.MAX_SAFE_INTEGER;
-            for (const [identifier, { max_age, updated_at, value }] of this.cache) {
+            for (const [identifier, record] of this.cache) {
                 // Flush the event loop every max purge items per synchronous event loop tick
                 if (count % this.options.max_purge_eloop_tick === 0) {
                     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -191,18 +214,22 @@ class CachedLookup extends EventEmitter {
                 count++;
 
                 // Skip if the cached value does not have a max value to determine if it is stale
-                if (!max_age) continue;
+                if (record.max_age === undefined) continue;
 
                 // Skip this cached value if it is not stale
-                const stale = now - max_age > updated_at;
+                const true_max_Age = record.max_age * this.options.purge_age_factor;
+                const stale = now - true_max_Age > record.updated_at;
                 if (!stale) {
                     // Update the nearest expiry timestamp if this cached value is closer than the previous one
-                    const expiry_at = updated_at + max_age;
+                    const expiry_at = record.updated_at + true_max_Age;
                     if (expiry_at < nearest_expiry_at) nearest_expiry_at = expiry_at;
 
                     // Skip this cached value
                     continue;
                 }
+
+                // Emit a purge event with the stale value and the provided arguments
+                this.emit('purge', record.value, ...this._parse_arguments(identifier));
 
                 // Delete the stale cached value
                 this.cache.delete(identifier);

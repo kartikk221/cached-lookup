@@ -1,114 +1,72 @@
-type LookupHandler<T extends unknown> = () => T | Promise<T>;
-type SupportedTypes = string | number | boolean;
+import EventEmitter from 'events';
 
-interface ValueRecord<T = unknown> {
-    value: T;
-    updated_at: number;
-}
+type ArgsType<T> = T extends (...args: infer U) => any ? U : never;
+type ResolvedType<T> = T extends PromiseLike<infer U> ? U : T;
+
+type LookupHandler<T extends (...args: any[]) => any> = T;
 
 interface ConstructorOptions {
     auto_purge?: boolean;
     purge_age_factor?: number;
 }
 
-export default class CachedLookup<T extends unknown> {
-    /**
-     * The lookup function that is used to resolve fresh values for the provided arguments.
-     * @type {function(...(SupportedArgumentTypes|Array<SupportedArgumentTypes>)):T|Promise<T>}
-     */
+interface ValueRecord<T = unknown> {
+    value: T;
+    max_age?: number;
+    updated_at: number;
+}
+
+export default class CachedLookup<T extends (...args: any[]) => any> extends EventEmitter {
     lookup: LookupHandler<T>;
+    cache: Map<string, ValueRecord<ResolvedType<ReturnType<T>>>>;
+    promises: Map<string, Promise<ResolvedType<ReturnType<T>>>>;
 
-    /**
-     * Stores the cached values identified by the serialized arguments from lookup calls.
-     * @type {Map<string, ValueRecord<T>>}
-     */
-    cache: Map<string, ValueRecord<T>>;
-
-    /**
-     * Stores the in-flight promises for any pending lookup calls identified by the serialized arguments.
-     * @type {Map<string, Promise<T>>}
-     */
-    promises: Map<string, Promise<T>>;
-
-    /**
-     * Creates a new CachedLookup instance with the specified lookup function.
-     * The lookup function can be both synchronous or asynchronous.
-     *
-     * @param {LookupHandler} [lookup] - The lookup function if the first argument is the constructor options.
-     */
     constructor(lookup: LookupHandler<T>);
-
-    /**
-     * Creates a new CachedLookup instance with the specified lookup function.
-     * The lookup function can be both synchronous or asynchronous.
-     *
-     * @param {ConstructorOptions} [options] - The constructor options.
-     * @param {LookupHandler} [lookup] - The lookup function if the first argument is the constructor options.
-     */
     constructor(options: ConstructorOptions, lookup: LookupHandler<T>);
 
     /**
-     * Returns a `cached` value that is up to `max_age` milliseconds old when available and falls back to a fresh value if not.
-     * Use this method over `rolling` if you want to guarantee that the cached value is up to `max_age` milliseconds old at the sacrifice of increased latency whenever a `fresh` value is required.
-     *
-     * @param {Number} max_age In Milliseconds
-     * @param {Array<SupportedTypes>} args
-     * @returns {Promise<T>}
+     * Returns a `cached` value that is up to `max_age` milliseconds old from now.
+     * Otherwise, It will fetch a fresh value and update the cache in the background.
+     * Use this method over `rolling` if you want to guarantee that the cached value is at most `max_age` milliseconds old at the cost of increased latency whenever a `fresh` value is fetched on a cache miss.
      */
-    cached(max_age: number, ...args: SupportedTypes[]): Promise<T>;
+    cached(max_age: number, ...args: ArgsType<T>): Promise<ResolvedType<ReturnType<T>>>;
 
     /**
-     * Returns a `cached` value that is around `max_age` milliseconds old when available and instantly resolves the most recently `cached` value while also updating the cache with a fresh value in the background.
-     * Use this method over `cached` if you want low latency at the sacrifice of a guaranteed age of the cached value.
-     *
-     * @param {Number} max_age In Milliseconds
-     * @param {Array<SupportedTypes>} args
-     * @returns {Promise<T>}
+     * Returns the most up to date `cached` value even if stale if one is available and automatically fetches a fresh value to ensure the cache is as up to date as possible to the `max_age` provided in milliseconds.
+     * Use this method over `cached` if you want lower latency at the cost of a temporarily stale cached value while a `fresh` value is being fetched in the background.
      */
-    rolling(max_age: number, ...args: SupportedTypes[]): Promise<T>;
+    rolling(max_age: number, ...args: ArgsType<T>): Promise<ResolvedType<ReturnType<T>>>;
 
     /**
-     * Returns a fresh value for the provided arguments.
-     * Note! This method will automatically update the internal cache with the fresh value.
-     *
-     * @param {Array<SupportedTypes>} args
-     * @returns {Promise<T>}
+     * Fetches and returns a fresh value for the provided set of arguments.
+     * Note! This method will automatically cache the fresh value for future use for the provided set of arguments.
      */
-    fresh(...args: SupportedTypes[]): Promise<T>;
+    fresh(...args: ArgsType<T>): Promise<ResolvedType<ReturnType<T>>>;
 
     /**
      * Returns the cached value for the provided set of arguments if it exists.
-     * @param  {...(SerializableArgumentTypes|Array<SerializableArgumentTypes>)} args
-     * @returns {T=}
      */
-    get(...args: SupportedTypes[]): undefined | T;
+    get(...args: ArgsType<T>): ResolvedType<ReturnType<T>> | undefined;
 
     /**
      * Expires the cached value for the provided set of arguments.
-     *
-     * @param {Array<SupportedTypes>} args
-     * @returns {Boolean} True if the cache value was expired, false otherwise.
+     * @returns {boolean} Returns `true` if the cache value was expired, `false` otherwise.
      */
-    expire(...args: SupportedTypes[]): boolean;
+    expire(...args: ArgsType<T>): boolean;
 
     /**
-     * Returns whether a fresh value is currently being resolved for the provided set of arguments.
-     *
-     * @param {Array<SupportedTypes>} args
-     * @returns {Boolean}
+     * Returns whether a fresh value is currently pending / being resolved for the provided set of arguments.
+     * @returns {boolean} Returns `true` if there is an in-flight promise for the specified arguments, `false` otherwise.
      */
-    in_flight(...args: SupportedTypes[]): boolean;
+    in_flight(...args: ArgsType<T>): boolean;
 
     /**
-     * Returns the last value update timestamp in milliseconds for the provided set of arguments.
-     *
-     * @param {Array<SupportedTypes>} args
-     * @returns {Boolean}
+     * Returns the timestamp in `milliseconds` since the UNIX epoch when the cached value for the provided set of arguments was last updated if it exists.
      */
-    updated_at(...args: SupportedTypes[]): number | void;
+    updated_at(...args: ArgsType<T>): number | undefined;
 
     /**
-     * Clears all the cached values and resets the internal cache state.
+     * Clears the lookup instance by removing all cached values from the cache.
      */
     clear(): void;
 }
