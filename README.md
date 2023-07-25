@@ -4,7 +4,6 @@
 
 [![NPM version](https://img.shields.io/npm/v/cached-lookup.svg?style=flat)](https://www.npmjs.com/package/cached-lookup)
 [![NPM downloads](https://img.shields.io/npm/dm/cached-lookup.svg?style=flat)](https://www.npmjs.com/package/cached-lookup)
-[![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/kartikk221/cached-lookup.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/kartikk221/cached-lookup/context:javascript)
 [![GitHub issues](https://img.shields.io/github/issues/kartikk221/cached-lookup)](https://github.com/kartikk221/cached-lookup/issues)
 [![GitHub stars](https://img.shields.io/github/stars/kartikk221/cached-lookup)](https://github.com/kartikk221/cached-lookup/stargazers)
 [![GitHub license](https://img.shields.io/github/license/kartikk221/cached-lookup)](https://github.com/kartikk221/cached-lookup/blob/master/LICENSE)
@@ -108,11 +107,17 @@ Below is a breakdown of the `CachedLookup` class.
 * `clear()`: Clears all the cached values and resets the internal cache state.
 * **Note** the `...arguments` are **optional** but must be of the following types: `Boolean`, `Number`, `String` or an `Array` of these types.
 
+#### CachedLookup Events
+* [`fresh`]: The `fresh` event is emitted whenever a fresh value is retrieved from the `lookup` function with a given set of arguments.
+    * **Example:** `CachedLookup.on('fresh', (value, arg1, arg2, arg3) => { /* Your Code */ });`
+* [`purge`]: The `purge` event is emitted whenever a stale cache value is purged from the cache.
+    * **Example:** `CachedLookup.on('purge', (value, arg1, arg2, arg3) => { /* Your Code */ });`
+
 ### ValueRecord Properties
 | Property  | Type     | Description                |
 | :-------- | :------- | :------------------------- |
 | `value`   | `T (Generic)`    | The cached value.   |
-| `timeout`   | `null | Number`    | The expiry timeout id if one exists.   |
+| `max_age`   | `undefined | Number`    | The smallest known `max_age` of value.   |
 | `updated_at`   | `Number`    | Timestamp (In milliseconds) of when this value was cached.   |
 
 ## License
