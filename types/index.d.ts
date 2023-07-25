@@ -5,6 +5,11 @@ type ResolvedType<T> = T extends PromiseLike<infer U> ? U : T;
 
 type LookupHandler<T extends (...args: any[]) => any> = T;
 
+interface CachedLookupEvents<T, U extends ArgsType<T>> {
+    purge: [T, ...U];
+    fresh: [T, ...U];
+}
+
 interface ConstructorOptions {
     auto_purge?: boolean;
     purge_age_factor?: number;
@@ -23,6 +28,20 @@ export default class CachedLookup<T extends (...args: any[]) => any> extends Eve
 
     constructor(lookup: LookupHandler<T>);
     constructor(options: ConstructorOptions, lookup: LookupHandler<T>);
+
+    // Override the default `EventEmitter` methods to provide type safety
+    on<K extends keyof CachedLookupEvents<ResolvedType<ReturnType<T>>, ArgsType<T>>>(
+        event: K,
+        listener: (...args: CachedLookupEvents<ResolvedType<ReturnType<T>>, ArgsType<T>>[K]) => void
+    ): this;
+    once<K extends keyof CachedLookupEvents<ResolvedType<ReturnType<T>>, ArgsType<T>>>(
+        event: K,
+        listener: (...args: CachedLookupEvents<ResolvedType<ReturnType<T>>, ArgsType<T>>[K]) => void
+    ): this;
+    emit<K extends keyof CachedLookupEvents<ResolvedType<ReturnType<T>>, ArgsType<T>>>(
+        event: K,
+        ...args: CachedLookupEvents<ResolvedType<ReturnType<T>>, ArgsType<T>>[K]
+    ): boolean;
 
     /**
      * Returns a `cached` value that is up to `max_age` milliseconds old from now.
