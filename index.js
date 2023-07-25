@@ -6,6 +6,17 @@ const EventEmitter = require('events');
  */
 
 /**
+ * @typedef {('purge' | 'fresh')} CachedLookupEventTypes
+ */
+
+/**
+ * @template T
+ * @callback CachedLookupEvent
+ * @param {T} value
+ * @param {...(undefined | null | boolean | string | number)[]} args
+ */
+
+/**
  * @template T
  */
 class CachedLookup extends EventEmitter {
@@ -93,6 +104,33 @@ class CachedLookup extends EventEmitter {
             max_purge_eloop_tick: 5000, // By default purge 5000 items per event loop tick
             ...(typeof options === 'object' ? options : {}),
         });
+    }
+
+    /**
+     * @param {CachedLookupEventTypes} event
+     * @param {CachedLookupEvent<T>} listener
+     * @returns {this}
+     */
+    on(event, listener) {
+        return super.on(...arguments);
+    }
+
+    /**
+     * @param {CachedLookupEventTypes} event
+     * @param {CachedLookupEvent<T>} listener
+     * @returns {this}
+     */
+    once(event, listener) {
+        return super.once(...arguments);
+    }
+
+    /**
+     * @param {CachedLookupEventTypes} event
+     * @param {CachedLookupEvent<T>} args
+     * @returns {boolean}
+     */
+    emit(event, ...args) {
+        return super.emit(...arguments);
     }
 
     /**
