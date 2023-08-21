@@ -308,7 +308,7 @@ class CachedLookup extends EventEmitter {
             this.promises.delete(identifier);
 
             // Check if a value was resolved from the lookup without any errors
-            if (value) {
+            if (value !== undefined) {
                 // Cache the fresh value for this identifier
                 this._set_in_cache(identifier, max_age, value);
 
