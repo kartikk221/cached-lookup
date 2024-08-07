@@ -294,6 +294,9 @@ class CachedLookup extends EventEmitter {
         const in_flight = this.promises.get(identifier);
         if (in_flight) return in_flight;
 
+        // Create a new cause Error to keep track of this error trace
+        const cause = new Error(`CachedLookup.fresh(${args.join(', ')}) -> lookup function threw an error.`);
+
         // Initialize a new Promise to resolve the fresh value for this identifier
         const promise = new Promise(async (resolve, reject) => {
             // Attempt to resolve the value for the specified arguments from the lookup
@@ -324,6 +327,9 @@ class CachedLookup extends EventEmitter {
                     new Error(
                         `CachedLookup.fresh(${args.join(', ')}) -> No value was returned by the lookup function.`
                     );
+
+                // Add the cause Error to the thrown error
+                error.cause = cause;
 
                 // Reject the fresh value promise with the error
                 reject(error);
