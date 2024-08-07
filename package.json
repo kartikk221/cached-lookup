@@ -1,6 +1,6 @@
 {
     "name": "cached-lookup",
-    "version": "5.3.3",
+    "version": "5.4.0",
     "description": "A Simple Package To Cache And Save On Expensive Lookups & Operations.",
     "main": "index.js",
     "types": "./types/index.d.ts",
