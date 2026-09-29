@@ -21,6 +21,16 @@ const EventEmitter = require('events');
  */
 class CachedLookup extends EventEmitter {
     #delimiter = ',';
+
+    /**
+     * Serializes lookup arguments into a collision-resistant cache identifier.
+     *
+     * @param {Array} args
+     * @returns {string}
+     */
+    _serialize_args(args) {
+        return JSON.stringify(args);
+    }
     #cleanup = {
         interval: null,
         running: false,
@@ -380,7 +390,7 @@ class CachedLookup extends EventEmitter {
         }
 
         // Serialize the arguments into an identifier
-        const identifier = args.join(this.#delimiter);
+        const identifier = this._serialize_args(args);
 
         // Attempt to resolve the cached value from the cached value record
         const record = this._get_from_cache(identifier, max_age_ms);
@@ -408,7 +418,7 @@ class CachedLookup extends EventEmitter {
         }
 
         // Serialize the arguments into an identifier
-        const identifier = args.join(this.#delimiter);
+        const identifier = this._serialize_args(args);
 
         // Attempt to resolve the cached value from the cached value record
         const record = this._get_from_cache(identifier, max_age_ms);
@@ -440,7 +450,7 @@ class CachedLookup extends EventEmitter {
      */
     fresh(...args) {
         // Resolve the fresh value for the provided serialized arguments
-        return this._get_fresh_value(args.join(this.#delimiter), undefined, ...args);
+        return this._get_fresh_value(this._serialize_args(args), undefined, ...args);
     }
 
     /**
@@ -452,7 +462,7 @@ class CachedLookup extends EventEmitter {
      */
     get(...args) {
         // Return the cached value for the specified arguments
-        return this.#cache.get(args.join(this.#delimiter))?.value;
+        return this.#cache.get(this._serialize_args(args))?.value;
     }
 
     /**
@@ -463,7 +473,7 @@ class CachedLookup extends EventEmitter {
      */
     expire(...args) {
         // Remove the cached value record for the specified arguments
-        const removed = this.#cache.delete(args.join(this.#delimiter));
+        const removed = this.#cache.delete(this._serialize_args(args));
         this._update_cache_cleanup();
         return removed;
     }
@@ -476,7 +486,7 @@ class CachedLookup extends EventEmitter {
      */
     in_flight(...args) {
         // Return true if there is a promise for the specified arguments
-        return this.#in_flight.has(args.join(this.#delimiter));
+        return this.#in_flight.has(this._serialize_args(args));
     }
 
     /**
@@ -487,7 +497,7 @@ class CachedLookup extends EventEmitter {
      */
     updated_at(...args) {
         // Return the updated_at timestamp for the specified arguments
-        return this.#cache.get(args.join(this.#delimiter))?.timestamp;
+        return this.#cache.get(this._serialize_args(args))?.timestamp;
     }
 
     /**
