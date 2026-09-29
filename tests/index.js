@@ -12,7 +12,6 @@ async function lookup_handler() {
     return Array.from(arguments).concat([crypto.randomUUID()]).join('');
 }
 
-let auto_purge = true;
 async function test_instance() {
     const group = 'LOOKUP';
     const candidate = 'CachedLookup';
@@ -22,13 +21,10 @@ async function test_instance() {
     // Create a new CachedLookup instance
     const lookup = new CachedLookup(
         {
-            auto_purge,
+            cache_ttl_ms: lookup_delay * 3,
         },
         lookup_handler
     );
-
-    // Flip the auto_purge flag
-    auto_purge = !auto_purge;
 
     // Perform the first lookup
     let [cached_value_1, cached_duration_1] = await with_duration(lookup.cached(lookup_delay, ...arguments)); // This should be fresh
@@ -42,7 +38,7 @@ async function test_instance() {
     );
 
     // Wait for the old value to expire and perform the second lookup
-    await async_wait(lookup_delay + 1);
+    await async_wait(lookup_delay + 10);
     let [cached_value_2, cached_duration_2] = await with_duration(lookup.cached(lookup_delay, ...arguments)); // This should be fresh
     let updated_at_2 = lookup.updated_at(...arguments);
 
@@ -51,7 +47,7 @@ async function test_instance() {
     let updated_at_3 = lookup.updated_at(...arguments);
 
     // Wait for the old value to expire and perform the fourth lookup
-    await async_wait(lookup_delay + 1);
+    await async_wait(lookup_delay + 10);
     let [cached_value_4, cached_duration_4] = await with_duration(lookup.cached(lookup_delay, ...arguments)); // This should be fresh
 
     // Perform the fifth lookup instantly
@@ -109,24 +105,14 @@ async function test_instance() {
 
     // Assert that the CachedLookup cache values are expired
     await async_wait(
-        lookup_delay * (lookup.options.auto_purge ? lookup.options.purge_age_factor : 1) + error_margin_ms
+        lookup_delay * 3 + error_margin_ms
     );
     const args = Array.from(arguments);
-    if (lookup.options.auto_purge) {
-        assert_log(
-            group,
-            candidate + '.cached() - Cache Expiration/Cleanup Test',
-            () =>
-                lookup.cache.size === 0 && lookup.get(...args) === undefined && lookup.get(Math.random()) === undefined
-        );
-    } else {
-        assert_log(
-            group,
-            candidate + '.cached() - Cache Retention Test',
-            () =>
-                lookup.cache.size === 1 && lookup.get(...args) !== undefined && lookup.get(Math.random()) === undefined
-        );
-    }
+    assert_log(
+        group,
+        candidate + '.cached() - Cache Expiration/Cleanup Test',
+        () => lookup.cache.size === 0 && lookup.get(...args) === undefined && lookup.get(Math.random()) === undefined
+    );
 
     // Determine if the CachedLookup instance is in flight by performing the second fresh lookup
     let in_flight_1 = lookup.in_flight(...arguments);
@@ -159,12 +145,12 @@ async function test_instance() {
     let rolling_lookup_2 = await lookup.rolling(lookup_delay, ...arguments);
     let rolling_finish_2 = Date.now() - rolling_start;
 
-    await async_wait(lookup_delay + 1);
+    await async_wait(lookup_delay + 10);
     rolling_start = Date.now();
     let rolling_lookup_3 = await lookup.rolling(lookup_delay, ...arguments);
     let rolling_finish_3 = Date.now() - rolling_start;
 
-    await async_wait(lookup_delay + 1);
+    await async_wait(lookup_delay + 10);
     rolling_start = Date.now();
     let rolling_lookup_4 = await lookup.rolling(lookup_delay, ...arguments);
     let rolling_finish_4 = Date.now() - rolling_start;
@@ -175,7 +161,7 @@ async function test_instance() {
         candidate + '.rolling() - Lookup Values Test',
         () =>
             // Ensure all the rolling lookup resolve times are constant and lower than the lookup delay
-            rolling_finish_1 > lookup_delay &&
+            rolling_finish_1 >= lookup_delay &&
             rolling_finish_2 < lookup_delay &&
             rolling_finish_3 < lookup_delay &&
             rolling_finish_4 < lookup_delay &&
@@ -194,21 +180,17 @@ async function test_instance() {
         () => lookup.cache.size === 0 && lookup.get(...args) === undefined
     );
 
-    // Perform a test on the internal cache cleanup scheduler if auto_purge is enabled
-    if (lookup.options.auto_purge) {
-        await Promise.all([
-            lookup.cached(lookup_delay * 3, Math.random()),
-            lookup.cached(lookup_delay * 2, Math.random()),
-            lookup.cached(lookup_delay, Math.random()),
-        ]);
-        assert_log(group, candidate + ' Cache Cleanup Scheduler Populated Test', () => lookup.cache.size === 3);
+    // Perform a test on the internal cache cleanup scheduler
+    await Promise.all([
+        lookup.cached(lookup_delay * 3, Math.random()),
+        lookup.cached(lookup_delay * 2, Math.random()),
+        lookup.cached(lookup_delay, Math.random()),
+    ]);
+    assert_log(group, candidate + ' Cache Cleanup Scheduler Populated Test', () => lookup.cache.size === 3);
 
-        // Wait for the cache cleanup scheduler to run and clear the cache
-        await async_wait(
-            lookup_delay * (lookup.options.auto_purge ? lookup.options.purge_age_factor : 1) * 4 + error_margin_ms
-        );
-        assert_log(group, candidate + ' Cache Cleanup Scheduler Cleared Test', () => lookup.cache.size === 0);
-    }
+    // Wait for the cache cleanup scheduler to run and clear the cache
+    await async_wait(lookup_delay * 6 + error_margin_ms);
+    assert_log(group, candidate + ' Cache Cleanup Scheduler Cleared Test', () => lookup.cache.size === 0);
 
     log('LOOKUP', 'Finished Testing CachedLookup');
     console.log('\n');

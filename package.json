@@ -1,11 +1,11 @@
 {
     "name": "cached-lookup",
-    "version": "5.5.0",
+    "version": "6.0.0",
     "description": "A Simple Package To Cache And Save On Expensive Lookups & Operations.",
     "main": "index.js",
     "types": "./types/index.d.ts",
     "scripts": {
-        "test": "echo \"Error: no test specified\" && exit 1"
+        "test": "node --test tests/retention.test.js"
     },
     "repository": {
         "type": "git",

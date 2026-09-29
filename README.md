@@ -11,114 +11,106 @@
 </div>
 
 ## Motivation
-This package aims to simplify the task of implementing a short-lived caching system for an endpoint which may be calling another third party API under the hood with a usage/rate limit. This package can also help to alleviate pressure when consuming data from databases or I/O network operations by implementing a short lived cache that does not scale relative to incoming requests.
+
+CachedLookup simplifies short-lived caching for endpoints that call a third-party API, database, or other expensive operation. It also consolidates concurrent calls for the same arguments into one lookup, helping reduce repeated work and pressure on rate-limited services.
 
 ## Features
-- Simple-to-use API
-- TypeScript Support
-- Dynamic Cache Consumption
-- CPU & Memory Efficient
-- No Dependencies
+
+- Small API with no dependencies and TypeScript support
+- One lookup for concurrent calls with the same arguments
+- Caller-controlled freshness with `cached()` or stale-while-refresh behavior with `rolling()`
+- Automatic cache sweeping with a fixed or growing per-key retention TTL
 
 ## Installation
-CachedLookup can be installed using node package manager (`npm`)
-```
+
+```sh
 npm i cached-lookup
 ```
 
-## How To Use?
-Below is a small snippet that shows how to use a `CachedLookup` instance.
+## Quick start
 
 ```javascript
 const CachedLookup = require('cached-lookup');
 
-// Create a cached lookup instance which fetches music concerts from different cities on a specific date
-const ConcertsLookup = new CachedLookup(async (country, state, city) => {
-    // Assume that the function get_city_concerts() is calling a Third-Party API which has a rate limit
-    const concerts = await get_city_concerts(country, state, city);
-
-    // Simply return the data and CachedLookup will handle the rest
-    return concerts;
+// Fetch concerts from a third-party API for a city.
+const concerts = new CachedLookup(async (country, state, city) => {
+    return get_city_concerts(country, state, city);
 });
 
-// Create some route which serves this data with a 10 second intermittent cache
 webserver.get('/api/concerts/:country/:state/:city', async (request, response) => {
-    // Retrieve the city value from the request - assume there is user validation done on this here
     const { country, state, city } = request.path_parameters;
 
-    // Retrieve data from the CachedLookup with the cached() and pass the city in the call to the lookup handler
-    // Be sure to specify the first parameter as the max_age of the cached value in milliseconds
-    // In our case, 10 seconds would be 10,000 milliseconds
-    const concerts = await ConcertsLookup.cached(1000 * 10, country, state, city);
-
-    // Simply return the data to the user
-    // Because we retrieved this data from the ConcertsLookup with the cached() method
-    // We can safely assume that we will only perform up to 1 Third-Party API request per city every 10 seconds
-    return response.json({
-        concerts
-    });
+    // Accept a stored value only if it is at most 10 seconds old.
+    const result = await concerts.cached(10_000, country, state, city);
+    return response.json({ concerts: result });
 });
 ```
 
-## CachedLookup
-Below is a breakdown of the `CachedLookup` class.
+The lookup handler can be synchronous or asynchronous. It must return a value; `undefined` is treated as a failed lookup. Arguments passed after `max_age_ms` are forwarded to the handler.
 
-#### Constructor Parameters
-* `new CachedLookup(Function: lookup)`: Creates a new CachedLookup instance with default `options`.
-* `new CachedLookup(Object?: options, Function(...arguments): lookup)`: Creates a new CachedLookup instance with custom `options`.
-  * `options` [`Object`]: Constructor options for this instance.
-    * `auto_purge` [`Boolean`]: Whether to automatically purge cache values when they have aged past their last known maximum age.
-      * **Default**: `true`
-    * `purge_age_factor` [`Number`]: The factor by which to multiply the last known maximum age of a cache value to determine the age at which it should be purged.
-      * **Default**: `1.5`
-  * `lookup` [`Function`]: Lookup handler which is called to get fresh values.
-    * **Note!** this callback can be either `synchronous` or `asynchronous`.
-    * **Note!** you must `return`/`resolve` a value through this callback for the caching to work properly.
-    * **Note!** `arguments` passed to the methods below will be available in each call to this `lookup` handler.
+## Constructor
 
-#### CachedLookup Properties
-| Property  | Type     | Description                |
-| :-------- | :------- | :------------------------- |
-| `lookup`   | `function(...arguments)`    | Lookup handler of this instance.   |
-| `cache`   | `Map<string, ValueRecord>`    | Internal map of cached values.   |
-| `promises`   | `Map<string, Promise<T>>`    | Internal map of promises for pending lookups.   |
+Use `new CachedLookup(lookup)` for defaults, or `new CachedLookup(options, lookup)` to configure retention. The options argument may be omitted.
 
-#### CachedLookup Methods
-* `cached(Number: max_age, ...arguments)`: Returns the `cached` value for the provided set of `arguments` from the lookup handler. Automatically falls back to a `fresh()` value if no cached value within the `max_age` is available.
-    * **Returns** a `Promise` which is resolved to the `cached` value with a fall back to the `fresh` value.
-    * **Note** the parameter `max_age` should be a `Number` in `milliseconds` to specify the maximum acceptable cache age.
-    * **Note** this method will automatically fall back to a `fresh()` call if no viable cache value is available.
-    * **Note** the returned `Promise` will **reject** when the lookup handler also rejects.
-    * **Note** the provided `arguments` after the `max_age` will be available inside of the `lookup` handler function.
-    * **Note** this method should be used over `rolling()` if you want to ensure cache freshness within the `max_age` threshold at the sacrifice of increased latency whenever a `fresh()` is resolved to satify the `max_age` requirement.
-* `rolling(Number: target_age, ...arguments)`: Returns the `cached` value for the provided set of `arguments` from the lookup handler. Instantly resolves the most recently cached value while triggering a `fresh()` value call in the background to reload the cache on a rolling basis according to the `target_age`.
-    * **Note** this method has the same signature as the `cached()` method above.
-    * **Note** this method should be used over `cached()` if you want to maintain low latency at the sacrifice of guaranteed cache freshness.
-* `fresh(...arguments)`: Retrieves the `fresh` value for the provided set of arguments from the lookup handler.
-  * **Returns** a `Promise` which is resolved to the `fresh` value.
-* `get(...arguments)`: Returns the `cached` value for the provided set of arguments if one exists in cache.
-  * **Returns** the `cached` value or `undefined`.
-* `expire(...arguments)`: Expires the `cached` value for the provided set of arguments.
-  * **Returns** a `Boolean` which specifies whether a `cached` value was expired or not.
-* `in_flight(...arguments)`: Checks whether a `fresh` value is currently being resolved for the provided set of arguments.
-  * **Returns** a `Boolean` to specify the result.
-* `updated_at(...arguments)`: Returns the last value update `timestamp` in **milliseconds** for the provided set of arguments.
-    * **Returns** a `Number` or `undefined` if no cached value exists.
-* `clear()`: Clears all the cached values and resets the internal cache state.
-* **Note** the `...arguments` are **optional** but must be of the following types: `Boolean`, `Number`, `String` or an `Array` of these types.
+| Option | Default | Meaning |
+| :-- | --: | :-- |
+| `cache_ttl_ms` | `60000` | Base retention TTL in milliseconds and interval between cache sweeps. Use `Infinity` to disable automatic purging. |
+| `cache_ttl_static` | `false` | Keep every record's retention TTL fixed at `cache_ttl_ms` when `true`. |
+| `cache_sweep_iterations` | `5000` | Records inspected synchronously before a sweep yields to the event loop. |
 
-#### CachedLookup Events
-* [`fresh`]: The `fresh` event is emitted whenever a fresh value is retrieved from the `lookup` function with a given set of arguments.
-    * **Example:** `CachedLookup.on('fresh', (value, arg1, arg2, arg3) => { /* Your Code */ });`
-* [`purge`]: The `purge` event is emitted whenever a stale cache value is purged from the cache.
-    * **Example:** `CachedLookup.on('purge', (value, arg1, arg2, arg3) => { /* Your Code */ });`
+```javascript
+const lookup = new CachedLookup({
+    cache_ttl_ms: 30_000,
+    cache_ttl_static: false,
+    cache_sweep_iterations: 2000,
+}, async (key) => fetch_value(key));
+```
 
-### ValueRecord Properties
-| Property  | Type     | Description                |
-| :-------- | :------- | :------------------------- |
-| `value`   | `T (Generic)`    | The cached value.   |
-| `max_age`   | `undefined | Number`    | The smallest known `max_age` of value.   |
-| `updated_at`   | `Number`    | Timestamp (In milliseconds) of when this value was cached.   |
+### Static versus dynamic TTL
+
+`max_age_ms` in `cached()` and `rolling()` is the **maximum age that caller will accept**. A record's `ttl` is how long CachedLookup **retains it in memory**. These are separate decisions.
+
+By default, `cache_ttl_static: false` allows a resident key's retention TTL to grow. Each request can raise that key's TTL to `max(cache_ttl_ms, max_age_ms)`. A smaller request never reduces it, and a cache hit does not change the last-store timestamp. Successful refreshes keep the highest TTL requested during that key's current residency. A pending lookup also collects the highest age requested by its callers. Purging, `expire()`, or `clear()` resets the key's TTL history.
+
+With `cache_ttl_static: true`, every successful value has exactly `cache_ttl_ms` of retention, regardless of callers' `max_age_ms` values. A caller can still require a fresher value than that window, or ask to use an older value while it remains resident; the fixed retention deadline does not change. Once a sweep removes the record, the next request starts a new lookup.
+
+For example, with `cache_ttl_ms: 30_000`, a `cached(120_000, key)` call can extend that key's retention to 120 seconds in dynamic mode. In static mode it stays at 30 seconds. In either mode, `cached(5_000, key)` accepts a value only while it is at most 5 seconds old.
+
+### Keeping values until manually removed
+
+Set `cache_ttl_ms: Infinity` to disable the sweep interval. CachedLookup still stores successful values and still applies each caller's `max_age_ms` freshness requirement, but completed records remain in memory until `expire()` or `clear()` removes them. This recreates the old no-purge behavior and is best reserved for a known, limited set of keys.
+
+## Methods
+
+| Method | Behavior |
+| :-- | :-- |
+| `cached(max_age_ms, ...args)` | Return a value within this caller's age limit, or wait for a shared fresh lookup. `cached(0)` bypasses completed values. |
+| `rolling(max_age_ms, ...args)` | Return a resident value immediately and refresh it in the background when stale; wait for a lookup if no value is resident. `rolling(0)` retains this stale-return behavior. |
+| `fresh(...args)` | Bypass completed values, join a lookup already in flight, and retain a successful result. |
+| `get(...args)` | Read a resident value without starting a lookup. |
+| `expire(...args)` | Remove one completed value and return whether it existed. |
+| `in_flight(...args)` | Return whether a lookup for these arguments is pending. |
+| `updated_at(...args)` | Return the last successful store timestamp in milliseconds, or `undefined`. |
+| `clear()` | Remove all completed values. |
+
+Lookup arguments may be booleans, numbers, strings, `null`, or arrays of these values. CachedLookup serializes them to identify a key. `cached()` rejects if its lookup fails; a failed background refresh from `rolling()` leaves the previous value in place.
+
+## Events and records
+
+`fresh` fires after a successful store; `purge` fires when a sweep removes a record. Both listeners receive `(value, ...originalArgs)`.
+
+The `cache` property exposes a live map of completed records. Each record has `args` (original arguments for purge events), `value`, `ttl` (retention in milliseconds), and `timestamp` (last successful store). The `lookup`, `options`, and `cache` properties are exposed through getters. Pending promises are private; use `in_flight()` or retain the promise returned by `cached()` or `fresh()`.
+
+A sweep runs once per finite `cache_ttl_ms` while the cache contains completed values. It removes each record when `now - timestamp >= ttl`, yielding after each `cache_sweep_iterations` records. Removal can lag a deadline by roughly one sweep interval plus event-loop delay. The interval stops when the cache is empty and is unreferenced on Node. Finite retention is bounded by time, but a high rate of unique keys can still increase memory use between sweeps; there is no entry-count or byte cap.
+
+## Breaking changes from 5.5
+
+- Every successful value, including one fetched only through `fresh()`, now has a finite retention TTL and is swept automatically by default. Set `cache_ttl_ms: Infinity` to retain values until manually removed.
+- `cached(0)` now bypasses completed values. In the default dynamic mode, a resident key preserves its highest requested retention TTL across successful refreshes until removal.
+- Constructor options `auto_purge`, `purge_age_factor`, and `max_purge_eloop_tick` were removed. Use `cache_ttl_ms`, `cache_ttl_static`, and `cache_sweep_iterations`. Unsupported option keys are ignored.
+- Cache records now use `timestamp` and `ttl`; the old `updated_at` and `max_age` record fields were removed. The `updated_at()` method remains available.
+- The previously public `promises` map is now private. Use `in_flight()` to check pending work or retain the promise returned by a lookup method.
 
 ## License
+
 [MIT](./LICENSE)

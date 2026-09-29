@@ -22,15 +22,16 @@ const EventEmitter = require('events');
 class CachedLookup extends EventEmitter {
     #delimiter = ',';
     #cleanup = {
-        timeout: null,
-        expected_at: null,
+        interval: null,
+        running: false,
     };
 
     /**
      * @typedef {Object} CachedRecord
+     * @property {Array} args - Original arguments for purge events.
      * @property {T} value
-     * @property {number=} max_age
-     * @property {number} updated_at
+     * @property {number} ttl - Retention time for this resident key.
+     * @property {number} timestamp - Time of the last successful store.
      */
 
     /**
@@ -43,39 +44,67 @@ class CachedLookup extends EventEmitter {
      * CachedLookup constructor options.
      * @type {ConstructorOptions}
      */
-    options;
+    #options;
 
     /**
      * The lookup function that is used to resolve fresh values for the provided arguments.
      * @type {LookupFunction}
      */
-    lookup;
+    #lookup;
 
     /**
      * Stores the cached values identified by the serialized arguments from lookup calls.
      * @type {Map<string, CachedRecord>}
      */
-    cache = new Map();
+    #cache = new Map();
 
     /**
-     * Stores the in-flight promises for any pending lookup calls identified by the serialized arguments.
-     * @type {Map<string, Promise<T>>}
+     * Stores each pending promise with the highest TTL requested by its callers.
+     * @type {Map<string, {promise: Promise<T>, ttl: number}>}
      */
-    promises = new Map();
+    #in_flight = new Map();
+
+    /**
+     * Returns the resolved constructor options.
+     *
+     * @returns {Readonly<ConstructorOptions>}
+     */
+    get options() {
+        return this.#options;
+    }
+
+    /**
+     * Returns the lookup handler used for fresh values.
+     *
+     * @returns {LookupFunction}
+     */
+    get lookup() {
+        return this.#lookup;
+    }
+
+    /**
+     * Returns the map of completed value records.
+     *
+     * @returns {Map<string, CachedRecord>}
+     */
+    get cache() {
+        return this.#cache;
+    }
 
     /**
      * @typedef {Object} ConstructorOptions
-     * @property {boolean} [auto_purge=true] - Whether to automatically purge cache values when they have aged past their last known maximum age.
-     * @property {number} [purge_age_factor=1.5] - The factor by which to multiply the last known maximum age of a stale cache value to determine the age after which it should be purged from memory.
-     * @property {number} [max_purge_eloop_tick=5000] - The number of items to purge from the cache per event loop tick. Decrease this value to reduce the impact of purging stale cache values on the event loop when working with many unique arguments.
+     * @property {number} [cache_ttl_ms=60000] - Base retention time and sweep interval in milliseconds.
+     * Infinity disables sweeping.
+     * @property {boolean} [cache_ttl_static=false] - Whether retention stays fixed at cache_ttl_ms.
+     * @property {number} [cache_sweep_iterations=5000] - Records inspected before yielding during a sweep.
      */
 
     /**
      * Creates a new CachedLookup instance with the specified lookup function.
      * The lookup function can be both synchronous or asynchronous.
      *
-     * @param {(LookupOptions|LookupFunction)} options - The constructor options or lookup function.
-     * @param {LookupFunction} [lookup] - The lookup function if the first argument is the constructor options.
+     * @param {(ConstructorOptions|LookupFunction)} options - The constructor options or lookup function.
+     * @param {LookupFunction} [lookup] - The lookup function when options are first.
      */
     constructor(options, lookup) {
         super();
@@ -83,6 +112,8 @@ class CachedLookup extends EventEmitter {
         // Ensure the options parameter is either the lookup function or an object.
         if (typeof options === 'function') {
             lookup = options;
+        } else if (options === undefined) {
+            options = {};
         } else if (!options || typeof options !== 'object') {
             throw new Error('new CachedLookup(options, lookup) -> options must be an Object.');
         }
@@ -97,16 +128,32 @@ class CachedLookup extends EventEmitter {
         }
 
         // Store the lookup function and options
-        this.lookup = lookup;
-        this.options = Object.freeze({
-            auto_purge: true, // By default automatically purge cache values when they have aged past their last known maximum age
-            purge_age_factor: 1.5, // By default purge values that are one and half times their maximum age
-            max_purge_eloop_tick: 5000, // By default purge 5000 items per event loop tick
-            ...(typeof options === 'object' ? options : {}),
+        this.#lookup = lookup;
+        const configured_options = typeof options === 'object' ? options : {};
+        this.#options = Object.freeze({
+            cache_ttl_ms: configured_options.cache_ttl_ms ?? 60000,
+            cache_ttl_static: configured_options.cache_ttl_static ?? false,
+            cache_sweep_iterations: configured_options.cache_sweep_iterations ?? 5000,
         });
+        const finite_ttl = this.#options.cache_ttl_ms !== Infinity;
+        const valid_ttl = Number.isSafeInteger(this.#options.cache_ttl_ms) && this.#options.cache_ttl_ms > 0;
+        if (finite_ttl && !valid_ttl) {
+            throw new Error('CachedLookup: cache_ttl_ms must be a positive integer or Infinity.');
+        }
+        if (typeof this.#options.cache_ttl_static !== 'boolean') {
+            throw new Error('new CachedLookup(options, lookup) -> cache_ttl_static must be a Boolean.');
+        }
+        const valid_iterations =
+            Number.isSafeInteger(this.#options.cache_sweep_iterations) && this.#options.cache_sweep_iterations > 0;
+        if (!valid_iterations) {
+            throw new Error('CachedLookup: cache_sweep_iterations must be a positive integer.');
+        }
     }
 
     /**
+     * Registers a listener for fresh or purge events.
+     * Listeners receive the value followed by the original lookup arguments.
+     *
      * @param {CachedLookupEventTypes} event
      * @param {CachedLookupEvent<T>} listener
      * @returns {this}
@@ -116,6 +163,8 @@ class CachedLookup extends EventEmitter {
     }
 
     /**
+     * Registers a listener that runs once for a fresh or purge event.
+     *
      * @param {CachedLookupEventTypes} event
      * @param {CachedLookupEvent<T>} listener
      * @returns {this}
@@ -125,6 +174,8 @@ class CachedLookup extends EventEmitter {
     }
 
     /**
+     * Emits a fresh or purge event with its value and lookup arguments.
+     *
      * @param {CachedLookupEventTypes} event
      * @param {CachedLookupEvent<T>} args
      * @returns {boolean}
@@ -134,282 +185,255 @@ class CachedLookup extends EventEmitter {
     }
 
     /**
-     * Returns an Array of arguments from a serialized string.
-     * @private
-     * @param {string} serialized
-     * @returns {SerializableArgumentTypes[]}
-     */
-    _parse_arguments(serialized) {
-        return serialized.split(this.#delimiter).map((arg) => {
-            // Handle null values
-            if (arg === 'null') return null;
-
-            // Handle boolean values
-            if (arg === 'true') return true;
-            if (arg === 'false') return false;
-
-            // Handle number values
-            if (!isNaN(arg)) return Number(arg);
-
-            // Handle string values
-            return arg;
-        });
-    }
-
-    /**
-     * Reads the most up to date cached value record for the provided set of arguments if it exists and is not older than the specified maximum age.
+     * Reads a completed record if this caller accepts its age.
+     * A resident record can still grow its retention TTL when it is too old
+     * for the caller, since that caller may join or start a refresh.
      *
      * @private
      * @param {string} identifier
-     * @param {number=} max_age
+     * @param {number=} max_age_ms - Maximum acceptable value age; also raises retention.
      * @returns {CachedRecord=}
      */
-    _get_from_cache(identifier, max_age) {
-        // Ensure the cached value record exists in the cache
-        const record = this.cache.get(identifier);
+    _get_from_cache(identifier, max_age_ms) {
+        const record = this.#cache.get(identifier);
         if (!record) return;
+        if (max_age_ms === undefined) return record;
 
-        // Schedule a cache cleanup for this entry if a max_age was provided
-        if (max_age !== undefined) this._schedule_cache_cleanup(max_age);
+        this._observe_ttl(identifier, max_age_ms);
+        if (max_age_ms === 0) return;
 
-        // Ensure the value is not older than the specified maximum age if provided
-        if (max_age !== undefined && Date.now() - max_age > record.updated_at) return;
-
-        // Update the record max_age if it is smaller than the provided max_age
-        if (max_age !== undefined && max_age < (record.max_age || Infinity)) record.max_age = max_age;
-
-        // Return the cached value record
+        const age_ms = Date.now() - record.timestamp;
+        if (age_ms > max_age_ms) return;
         return record;
     }
 
     /**
-     * Writes the provided value to the cache as the most up to date cached value for the provided set of arguments.
+     * Stores a successful lookup with the key's current retention TTL.
+     * A refresh keeps any TTL increase from the previous resident record.
      *
      * @private
      * @param {string} identifier
-     * @param {number=} max_age
+     * @param {number=} ttl
      * @param {T} value
+     * @param {Array} args
      */
-    _set_in_cache(identifier, max_age, value) {
-        const now = Date.now();
+    _set_in_cache(identifier, ttl, value, args) {
+        const previous = this.#cache.get(identifier);
+        const base_ttl = this.#options.cache_ttl_ms;
+        const retention_ttl = this.#options.cache_ttl_static
+            ? base_ttl
+            : Math.max(base_ttl, ttl || 0, previous?.ttl || 0);
 
-        // Retrieve the cached value record for this identifier from the cache
-        const record = this.cache.get(identifier) || {
+        this.#cache.set(identifier, {
+            args,
             value,
-            max_age,
-            updated_at: now,
-        };
-
-        // Update the record values
-        record.value = value;
-        record.updated_at = now;
-        record.max_age = max_age;
-
-        // Store the updated cached value record in the cache
-        this.cache.set(identifier, record);
-
-        // Schedule a cache cleanup for this entry if a max_age was provided
-        if (max_age !== undefined) this._schedule_cache_cleanup(max_age);
+            ttl: retention_ttl,
+            timestamp: Date.now(),
+        });
+        this._update_cache_cleanup();
     }
 
     /**
-     * Schedules a cache cleanup to purge stale cache values if the provided `max_age` is earlier than the next expected cleanup.
-     *
-     * @param {number} max_age
-     * @returns {boolean} Whether a sooner cleanup was scheduled.
-     */
-    _schedule_cache_cleanup(max_age) {
-        // Do not schedule anything if auto_purge is disabled
-        if (!this.options.auto_purge) return false;
-
-        // Increase the max_age by the purge_age_factor to determine the true max_age of the cached value
-        max_age *= this.options.purge_age_factor;
-
-        // Return false if the scheduled expected cleanup is sooner than the provided max_age as there is no need to expedite the cleanup
-        const now = Date.now();
-        const { timeout, expected_at } = this.#cleanup;
-        if (timeout && expected_at && expected_at <= now + max_age) return false;
-
-        // Clear the existing cleanup timeout if one exists
-        if (timeout) clearTimeout(timeout);
-
-        // Create a new cleanup timeout to purge stale cache values
-        this.#cleanup.expected_at = now + max_age;
-        this.#cleanup.timeout = setTimeout(
-            async () => {
-                // Clear the existing cleanup timeout
-                this.#cleanup.timeout = null;
-                this.#cleanup.expected_at = null;
-
-                // Purge stale cache values
-                let count = 0;
-                let now = Date.now();
-                let nearest_expiry_at = Number.MAX_SAFE_INTEGER;
-                for (const [identifier, record] of this.cache) {
-                    // Flush the event loop every max purge items per synchronous event loop tick
-                    if (count % this.options.max_purge_eloop_tick === 0) {
-                        await new Promise((resolve) => setTimeout(resolve, 0));
-                    }
-                    count++;
-
-                    // Skip if the cached value does not have a max value to determine if it is stale
-                    if (record.max_age === undefined) continue;
-
-                    // Skip this cached value if it is not stale
-                    const true_max_Age = record.max_age * this.options.purge_age_factor;
-                    const stale = now - true_max_Age > record.updated_at;
-                    if (!stale) {
-                        // Update the nearest expiry timestamp if this cached value is closer than the previous one
-                        const expiry_at = record.updated_at + true_max_Age;
-                        if (expiry_at < nearest_expiry_at) nearest_expiry_at = expiry_at;
-
-                        // Skip this cached value
-                        continue;
-                    }
-
-                    // Emit a purge event with the stale value and the provided arguments
-                    this.emit('purge', record.value, ...this._parse_arguments(identifier));
-
-                    // Delete the stale cached value
-                    this.cache.delete(identifier);
-                }
-
-                // Schedule another cleanup if there are still more values remaining in the cache
-                if (this.cache.size && nearest_expiry_at < Number.MAX_SAFE_INTEGER) {
-                    this._schedule_cache_cleanup(nearest_expiry_at - now);
-                }
-            },
-            Math.min(max_age, 2147483647),
-        ); // Do not allow the timeout to exceed the maximum timeout value of 2147483647 as it will cause an overflow error
-    }
-
-    /**
-     * Fetches a fresh value for the provided set of arguments and stores it in the cache for future use.
+     * Raises retention for a resident value and any shared pending lookup.
+     * Static retention leaves both unchanged.
      *
      * @private
-     * @param {string} identifier
-     * @param {number=} max_age
-     * @param {...(SerializableArgumentTypes|Array<SerializableArgumentTypes>)} args
-     * @returns {Promise<T>}
      */
-    _get_fresh_value(identifier, max_age, ...args) {
-        // Resolve an already in-flight promise if one exists for this identifier
-        const in_flight = this.promises.get(identifier);
-        if (in_flight) return in_flight;
+    _observe_ttl(identifier, ttl) {
+        if (this.#options.cache_ttl_static) return;
 
-        // Initialize a new Promise to resolve the fresh value for this identifier
-        const promise = new Promise(async (resolve, reject) => {
-            // Attempt to resolve the value for the specified arguments from the lookup
-            let value, error;
-            try {
-                value = await this.lookup(...args);
-            } catch (e) {
-                error = e;
-            }
+        const record = this.#cache.get(identifier);
+        if (record) record.ttl = Math.max(record.ttl, ttl);
 
-            // Delete the in-flight promise for this identifier
-            this.promises.delete(identifier);
-
-            // Check if a value was resolved from the lookup without any errors
-            if (value !== undefined) {
-                // Cache the fresh value for this identifier
-                this._set_in_cache(identifier, max_age, value);
-
-                // Emit a 'fresh' event with the fresh value and the provided arguments
-                this.emit('fresh', value, ...args);
-
-                // Resolve the fresh value
-                resolve(value);
-            } else {
-                // Generate a new error if no value was resolved from the lookup
-                error =
-                    error ||
-                    new Error(
-                        `CachedLookup.fresh(${args.join(', ')}) -> No value was returned by the lookup function.`,
-                    );
-
-                // Reject the fresh value promise with the error
-                reject(error);
-            }
-        });
-
-        // Store the in-flight promise for this identifier so that future calls can re-use it
-        this.promises.set(identifier, promise);
-
-        // Return the in-flight promise to the caller
-        return promise;
+        const in_flight = this.#in_flight.get(identifier);
+        if (in_flight) in_flight.ttl = Math.max(in_flight.ttl, ttl);
     }
 
     /**
-     * Returns a `cached` value that is up to `max_age` milliseconds old from now.
-     * Otherwise, It will fetch a fresh value and update the cache in the background.
-     * Use this method over `rolling` if you want to guarantee that the cached value is at most `max_age` milliseconds old at the cost of increased latency whenever a `fresh` value is fetched on a cache miss.
+     * Runs one sweep interval while finite-TTL records are resident.
+     * Stops it when the cache becomes empty.
      *
-     * @param {Number} max_age In Milliseconds
-     * @param {...(SerializableArgumentTypes|Array<SerializableArgumentTypes>)} args
-     * @returns {Promise<T>}
+     * @private
      */
-    cached(max_age, ...args) {
-        if (typeof max_age !== 'number' || isNaN(max_age) || max_age < 0 || max_age > Number.MAX_SAFE_INTEGER)
-            throw new Error('CachedLookup.cached(max_age) -> max_age must be a valid number.');
+    _update_cache_cleanup() {
+        const needs_sweep = this.#cache.size && this.#options.cache_ttl_ms !== Infinity;
+        if (!needs_sweep) {
+            if (this.#cleanup.interval) clearInterval(this.#cleanup.interval);
+            this.#cleanup.interval = null;
+            return;
+        }
+        if (this.#cleanup.interval) return;
 
-        // Serialize the arguments into an identifier
-        const identifier = args.join(this.#delimiter);
-
-        // Attempt to resolve the cached value from the cached value record
-        const record = this._get_from_cache(identifier, max_age);
-        if (record) return Promise.resolve(record.value);
-
-        // Resolve the fresh value for the provided arguments in array serialization
-        return this._get_fresh_value(identifier, max_age, ...args);
+        this.#cleanup.interval = setInterval(
+            () => this._purge_stale_cache(),
+            Math.min(this.#options.cache_ttl_ms, 2147483647),
+        );
+        this.#cleanup.interval.unref?.();
     }
 
     /**
-     * Returns the most up to date `cached` value even if stale if one is available and automatically fetches a fresh value to ensure the cache is as up to date as possible to the `max_age` provided in milliseconds.
-     * Use this method over `cached` if you want lower latency at the cost of a temporarily stale cached value while a `fresh` value is being fetched in the background.
+     * Removes records that have reached their individual retention deadlines.
+     * Yields after each batch and prevents another sweep from overlapping it.
      *
-     * @param {Number} target_age In Milliseconds
-     * @param {...(SerializableArgumentTypes|Array<SerializableArgumentTypes>)} args
-     * @returns {Promise<T>}
+     * @private
      */
-    rolling(target_age, ...args) {
-        if (
-            typeof target_age !== 'number' ||
-            isNaN(target_age) ||
-            target_age < 0 ||
-            target_age > Number.MAX_SAFE_INTEGER
-        )
-            throw new Error('CachedLookup.rolling(target_age) -> target_age must be a valid number.');
+    async _purge_stale_cache() {
+        if (this.#cleanup.running) return;
 
-        // Serialize the arguments into an identifier
-        const identifier = args.join(this.#delimiter);
+        this.#cleanup.running = true;
+        try {
+            let count = 0;
+            let now = Date.now();
+            for (const [identifier, record] of this.#cache) {
+                const batch_complete = count > 0 && count % this.#options.cache_sweep_iterations === 0;
+                if (batch_complete) {
+                    await new Promise((resolve) => setTimeout(resolve, 0));
+                    now = Date.now();
+                }
+                count++;
+                if (this.#cache.get(identifier) !== record) continue;
 
-        // Attempt to resolve the cached value from the cached value record
-        const record = this._get_from_cache(identifier, target_age);
-        if (record) return Promise.resolve(record.value);
+                const age_ms = now - record.timestamp;
+                if (age_ms < record.ttl) continue;
 
-        // Lookup the cached value for the provided arguments
-        const cached = this._get_from_cache(identifier);
-        if (cached) {
-            // Check if the cached value is stale for the provided target_age
-            const stale = Date.now() - target_age > cached.updated_at;
-            if (stale) {
-                // Trigger a fresh lookup for the provided arguments if one is not already in-flight
-                const in_flight = this.promises.has(identifier);
-                if (!in_flight) this._get_fresh_value(identifier, target_age, ...args);
+                this.#cache.delete(identifier);
+                this.emit('purge', record.value, ...record.args);
             }
-
-            // Resolve the stale cached value for the provided arguments while a fresh value is being fetched in the background
-            return Promise.resolve(cached.value);
-        } else {
-            // Resolve a fresh value for the provided arguments as there is no cached value available
-            return this._get_fresh_value(identifier, target_age, ...args);
+        } finally {
+            this.#cleanup.running = false;
+            this._update_cache_cleanup();
         }
     }
 
     /**
+     * Starts or joins one lookup for a key.
+     * Shared callers can raise the TTL of its eventual successful record.
+     *
+     * @private
+     * @param {string} identifier
+     * @param {number=} max_age_ms
+     * @param {...(SerializableArgumentTypes|Array<SerializableArgumentTypes>)} args
+     * @returns {Promise<T>}
+     */
+    _get_fresh_value(identifier, max_age_ms, ...args) {
+        const existing = this.#in_flight.get(identifier);
+        if (existing) {
+            if (max_age_ms !== undefined) this._observe_ttl(identifier, max_age_ms);
+            return existing.promise;
+        }
+
+        let resolve, reject;
+        const promise = new Promise((yes, no) => {
+            resolve = yes;
+            reject = no;
+        });
+        const in_flight = {ttl: max_age_ms || 0, promise};
+        this.#in_flight.set(identifier, in_flight);
+
+        (async () => {
+            let value, error;
+            try {
+                value = await this.#lookup(...args);
+            } catch (e) {
+                error = e;
+            }
+
+            this.#in_flight.delete(identifier);
+
+            if (value === undefined) {
+                if (!error) {
+                    const call = `CachedLookup.fresh(${args.join(', ')})`;
+                    const message = `${call} -> No value was returned by the lookup function.`;
+                    error = new Error(message);
+                }
+                reject(error);
+                return;
+            }
+
+            try {
+                this._set_in_cache(identifier, in_flight.ttl, value, args);
+                this.emit('fresh', value, ...args);
+                resolve(value);
+            } catch (e) {
+                reject(e);
+            }
+        })();
+
+        return promise;
+    }
+
+    /**
+     * Returns a completed value within this caller's maximum age.
+     * Otherwise, waits for a shared lookup. Zero bypasses completed values.
+     * The requested age can raise retention without changing the timestamp.
+     *
+     * @param {Number} max_age_ms In Milliseconds
+     * @param {...(SerializableArgumentTypes|Array<SerializableArgumentTypes>)} args
+     * @returns {Promise<T>}
+     */
+    cached(max_age_ms, ...args) {
+        const invalid_type = typeof max_age_ms !== 'number';
+        const invalid_age =
+            invalid_type || max_age_ms < 0 || Number.isNaN(max_age_ms) || max_age_ms > Number.MAX_SAFE_INTEGER;
+        if (invalid_age) {
+            throw new Error('CachedLookup.cached(max_age_ms) -> max_age_ms must be a valid number.');
+        }
+
+        // Serialize the arguments into an identifier
+        const identifier = args.join(this.#delimiter);
+
+        // Attempt to resolve the cached value from the cached value record
+        const record = this._get_from_cache(identifier, max_age_ms);
+        if (record) return Promise.resolve(record.value);
+
+        // Resolve the fresh value for the provided arguments in array serialization
+        return this._get_fresh_value(identifier, max_age_ms, ...args);
+    }
+
+    /**
+     * Returns a resident value immediately, even when stale.
+     * A stale value triggers a background refresh; a missing value waits for it.
+     * Zero still returns a resident value while refreshing it.
+     *
+     * @param {Number} max_age_ms In Milliseconds
+     * @param {...(SerializableArgumentTypes|Array<SerializableArgumentTypes>)} args
+     * @returns {Promise<T>}
+     */
+    rolling(max_age_ms, ...args) {
+        const invalid_type = typeof max_age_ms !== 'number';
+        const invalid_age =
+            invalid_type || max_age_ms < 0 || Number.isNaN(max_age_ms) || max_age_ms > Number.MAX_SAFE_INTEGER;
+        if (invalid_age) {
+            throw new Error('CachedLookup.rolling(max_age_ms) -> max_age_ms must be a valid number.');
+        }
+
+        // Serialize the arguments into an identifier
+        const identifier = args.join(this.#delimiter);
+
+        // Attempt to resolve the cached value from the cached value record
+        const record = this._get_from_cache(identifier, max_age_ms);
+        if (record) return Promise.resolve(record.value);
+
+        // Lookup the cached value for the provided arguments
+        const cached = this._get_from_cache(identifier);
+        if (!cached) {
+            return this._get_fresh_value(identifier, max_age_ms, ...args);
+        }
+
+        const age_ms = Date.now() - cached.timestamp;
+        const stale = max_age_ms === 0 || age_ms > max_age_ms;
+        if (stale) {
+            // Handle the background rejection while returning the stale value.
+            this._get_fresh_value(identifier, max_age_ms, ...args).catch(() => {});
+        }
+
+        return Promise.resolve(cached.value);
+    }
+
+    /**
      * Fetches and returns a fresh value for the provided set of arguments.
-     * Note! This method will automatically cache the fresh value for future use for the provided set of arguments.
+     * Joins a lookup already in flight and retains a successful value for
+     * at least the instance's base retention TTL.
      *
      * @param {...(SerializableArgumentTypes|Array<SerializableArgumentTypes>)} args
      * @returns {Promise<T>}
@@ -420,13 +444,15 @@ class CachedLookup extends EventEmitter {
     }
 
     /**
-     * Returns the cached value for the provided set of arguments if it exists.
+     * Reads a resident value without starting a lookup.
+     * A value can remain readable past its deadline until the next sweep.
+     *
      * @param  {...(SerializableArgumentTypes|Array<SerializableArgumentTypes>)} args
      * @returns {T=}
      */
     get(...args) {
         // Return the cached value for the specified arguments
-        return this.cache.get(args.join(this.#delimiter))?.value;
+        return this.#cache.get(args.join(this.#delimiter))?.value;
     }
 
     /**
@@ -437,36 +463,40 @@ class CachedLookup extends EventEmitter {
      */
     expire(...args) {
         // Remove the cached value record for the specified arguments
-        return this.cache.delete(args.join(this.#delimiter));
+        const removed = this.#cache.delete(args.join(this.#delimiter));
+        this._update_cache_cleanup();
+        return removed;
     }
 
     /**
-     * Returns whether a fresh value is currently pending / being resolved for the provided set of arguments.
+     * Reports whether a lookup is pending for these arguments.
      *
      * @param {...(SerializableArgumentTypes|Array<SerializableArgumentTypes>)} args
-     * @returns {boolean} Returns `true` if there is an in-flight promise for the specified arguments, `false` otherwise.
+     * @returns {boolean}
      */
     in_flight(...args) {
         // Return true if there is a promise for the specified arguments
-        return this.promises.has(args.join(this.#delimiter));
+        return this.#in_flight.has(args.join(this.#delimiter));
     }
 
     /**
-     * Returns the timestamp in `milliseconds` since the UNIX epoch when the cached value for the provided set of arguments was last updated if it exists.
+     * Returns the last successful store time in milliseconds since the UNIX epoch.
      *
      * @param {...(SerializableArgumentTypes|Array<SerializableArgumentTypes>)} args
      * @returns {number=}
      */
     updated_at(...args) {
         // Return the updated_at timestamp for the specified arguments
-        return this.cache.get(args.join(this.#delimiter))?.updated_at;
+        return this.#cache.get(args.join(this.#delimiter))?.timestamp;
     }
 
     /**
-     * Clears the lookup instance by removing all cached values from the cache.
+     * Removes all completed records and stops the sweep interval.
+     * Pending lookups remain in flight and can store a value later.
      */
     clear() {
-        this.cache.clear();
+        this.#cache.clear();
+        this._update_cache_cleanup();
     }
 }
 
